@@ -1,3 +1,4 @@
+// swift-format-ignore: AlwaysUseLowerCamelCase
 /// Supported ID3v2 tag versions.
 public enum ID3Version: Sendable, Hashable {
 

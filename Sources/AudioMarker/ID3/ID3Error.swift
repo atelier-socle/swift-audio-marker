@@ -24,6 +24,9 @@ public enum ID3Error: Error, Sendable, LocalizedError {
     /// A syncsafe integer is malformed (has bit 7 set).
     case invalidSyncsafeInteger
 
+    /// A write operation failed.
+    case writeFailed(String)
+
     public var errorDescription: String? {
         switch self {
         case .noTag:
@@ -40,6 +43,8 @@ public enum ID3Error: Error, Sendable, LocalizedError {
             return "Truncated ID3v2 data: expected \(expected) bytes, \(available) available."
         case .invalidSyncsafeInteger:
             return "Malformed syncsafe integer (bit 7 set in one or more bytes)."
+        case .writeFailed(let reason):
+            return "ID3v2 write failed: \(reason)."
         }
     }
 }

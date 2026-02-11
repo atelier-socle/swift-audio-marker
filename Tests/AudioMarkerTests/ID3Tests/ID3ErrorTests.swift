@@ -49,4 +49,10 @@ struct ID3ErrorTests {
         let error = ID3Error.invalidSyncsafeInteger
         #expect(error.errorDescription?.contains("syncsafe") == true)
     }
+
+    @Test("writeFailed has description with reason")
+    func writeFailedDescription() {
+        let error = ID3Error.writeFailed("Disk full")
+        #expect(error.errorDescription?.contains("Disk full") == true)
+    }
 }

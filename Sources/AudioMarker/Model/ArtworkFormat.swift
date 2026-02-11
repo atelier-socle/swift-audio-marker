@@ -23,7 +23,8 @@ public enum ArtworkFormat: String, Sendable, Hashable, CaseIterable {
         if data.count >= 3,
             data[data.startIndex] == 0xFF,
             data[data.startIndex + 1] == 0xD8,
-            data[data.startIndex + 2] == 0xFF {
+            data[data.startIndex + 2] == 0xFF
+        {
             return .jpeg
         }
 
@@ -31,7 +32,8 @@ public enum ArtworkFormat: String, Sendable, Hashable, CaseIterable {
         if data[data.startIndex] == 0x89,
             data[data.startIndex + 1] == 0x50,
             data[data.startIndex + 2] == 0x4E,
-            data[data.startIndex + 3] == 0x47 {
+            data[data.startIndex + 3] == 0x47
+        {
             return .png
         }
 
