@@ -8,7 +8,7 @@ let package = Package(
     .iOS(.v17),
     .macOS(.v14),
     .visionOS(.v1),
-    .macCatalyst(.v17),
+    .macCatalyst(.v17)
   ],
   products: [
     .library(
@@ -18,13 +18,13 @@ let package = Package(
     .executable(
       name: "audiomarker",
       targets: ["AudioMarkerCLI"]
-    ),
+    )
   ],
   dependencies: [
     .package(
       url: "https://github.com/apple/swift-argument-parser.git",
       from: "1.5.0"
-    ),
+    )
   ],
   targets: [
     .target(
@@ -35,7 +35,7 @@ let package = Package(
       name: "AudioMarkerCLI",
       dependencies: [
         "AudioMarker",
-        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
       ],
       path: "Sources/CLI"
     ),
@@ -43,6 +43,6 @@ let package = Package(
       name: "AudioMarkerTests",
       dependencies: ["AudioMarker"],
       path: "Tests/AudioMarkerTests"
-    ),
+    )
   ]
 )

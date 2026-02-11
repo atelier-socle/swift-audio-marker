@@ -2,7 +2,11 @@ import Testing
 
 @testable import AudioMarker
 
-@Test("AudioMarker struct can be instantiated")
-func audioMarkerInit() {
-  let _ = AudioMarker()
+@Suite("AudioMarker")
+struct AudioMarkerTests {
+
+    @Test("AudioMarker struct can be instantiated")
+    func instantiation() {
+        _ = AudioMarker()
+    }
 }
