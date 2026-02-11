@@ -30,6 +30,10 @@ public struct ChapterExporter: Sendable {
             FFMetadataExporter().export(chapters)
         case .markdown:
             MarkdownExporter().export(chapters)
+        case .lrc:
+            throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
+        case .ttml:
+            throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
         }
     }
 
@@ -54,6 +58,10 @@ public struct ChapterExporter: Sendable {
             try FFMetadataExporter().importChapters(from: string)
         case .markdown:
             throw ExportError.importNotSupported("markdown")
+        case .lrc:
+            throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
+        case .ttml:
+            throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
         }
     }
 }

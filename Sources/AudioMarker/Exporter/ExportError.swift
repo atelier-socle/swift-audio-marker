@@ -10,6 +10,8 @@ public enum ExportError: Error, LocalizedError, Sendable, Hashable {
     case invalidFormat(String)
     /// An I/O error occurred during file operations.
     case ioError(String)
+    /// The operation is not supported for this format.
+    case unsupportedFormat(String)
 
     public var errorDescription: String? {
         switch self {
@@ -21,6 +23,8 @@ public enum ExportError: Error, LocalizedError, Sendable, Hashable {
             "Invalid format: \(detail)."
         case .ioError(let detail):
             "I/O error: \(detail)."
+        case .unsupportedFormat(let detail):
+            "Unsupported format: \(detail)."
         }
     }
 }

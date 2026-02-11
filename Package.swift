@@ -41,8 +41,18 @@ let package = Package(
     ),
     .testTarget(
       name: "AudioMarkerTests",
-      dependencies: ["AudioMarker"],
+      dependencies: [
+        "AudioMarker"
+      ],
       path: "Tests/AudioMarkerTests"
+    ),
+    .testTarget(
+      name: "AudioMarkerCLITests",
+      dependencies: [
+        "AudioMarkerCLI",
+        "AudioMarker"
+      ],
+      path: "Tests/AudioMarkerCLITests"
     )
   ]
 )

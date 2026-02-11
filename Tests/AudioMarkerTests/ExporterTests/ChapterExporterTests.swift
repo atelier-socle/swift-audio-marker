@@ -90,6 +90,36 @@ struct ChapterExporterTests {
         }
     }
 
+    // MARK: - Unsupported Lyrics Formats
+
+    @Test("LRC export throws unsupportedFormat")
+    func lrcExportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.export(sampleChapters, format: .lrc)
+        }
+    }
+
+    @Test("LRC import throws unsupportedFormat")
+    func lrcImportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.importChapters(from: "anything", format: .lrc)
+        }
+    }
+
+    @Test("TTML export throws unsupportedFormat")
+    func ttmlExportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.export(sampleChapters, format: .ttml)
+        }
+    }
+
+    @Test("TTML import throws unsupportedFormat")
+    func ttmlImportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.importChapters(from: "anything", format: .ttml)
+        }
+    }
+
     // MARK: - Round-Trip
 
     @Test(

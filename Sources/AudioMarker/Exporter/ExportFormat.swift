@@ -1,6 +1,6 @@
 import Foundation
 
-/// Supported chapter export formats.
+/// Supported export formats for chapters and lyrics.
 public enum ExportFormat: String, Sendable, CaseIterable {
     /// Podlove Simple Chapters (JSON).
     case podloveJSON
@@ -12,6 +12,10 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     case ffmetadata
     /// Markdown (export only).
     case markdown
+    /// LRC synchronized lyrics format.
+    case lrc
+    /// W3C Timed Text Markup Language (export only).
+    case ttml
 
     /// The file extension for this format.
     public var fileExtension: String {
@@ -21,13 +25,16 @@ public enum ExportFormat: String, Sendable, CaseIterable {
         case .mp4chaps: "txt"
         case .ffmetadata: "ini"
         case .markdown: "md"
+        case .lrc: "lrc"
+        case .ttml: "ttml"
         }
     }
 
-    /// Whether this format supports importing chapters.
+    /// Whether this format supports importing.
     public var supportsImport: Bool {
         switch self {
-        case .markdown: false
+        case .markdown, .ttml: false
+        case .lrc: true
         default: true
         }
     }

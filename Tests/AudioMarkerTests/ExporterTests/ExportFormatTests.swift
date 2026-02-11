@@ -5,9 +5,9 @@ import Testing
 @Suite("Export Format")
 struct ExportFormatTests {
 
-    @Test("Has five cases")
+    @Test("Has seven cases")
     func caseCount() {
-        #expect(ExportFormat.allCases.count == 5)
+        #expect(ExportFormat.allCases.count == 7)
     }
 
     @Test("Podlove JSON has json extension")
@@ -35,13 +35,25 @@ struct ExportFormatTests {
         #expect(ExportFormat.markdown.fileExtension == "md")
     }
 
-    @Test("All formats except markdown support import")
+    @Test("LRC has lrc extension")
+    func lrcExtension() {
+        #expect(ExportFormat.lrc.fileExtension == "lrc")
+    }
+
+    @Test("TTML has ttml extension")
+    func ttmlExtension() {
+        #expect(ExportFormat.ttml.fileExtension == "ttml")
+    }
+
+    @Test("Import-capable formats support import")
     func supportsImport() {
         #expect(ExportFormat.podloveJSON.supportsImport)
         #expect(ExportFormat.podloveXML.supportsImport)
         #expect(ExportFormat.mp4chaps.supportsImport)
         #expect(ExportFormat.ffmetadata.supportsImport)
+        #expect(ExportFormat.lrc.supportsImport)
         #expect(!ExportFormat.markdown.supportsImport)
+        #expect(!ExportFormat.ttml.supportsImport)
     }
 
     // MARK: - ExportError Descriptions
@@ -68,5 +80,11 @@ struct ExportFormatTests {
     func ioErrorDescription() {
         let error = ExportError.ioError("disk full")
         #expect(error.errorDescription?.contains("disk full") == true)
+    }
+
+    @Test("unsupportedFormat has description")
+    func unsupportedFormatDescription() {
+        let error = ExportError.unsupportedFormat("LRC is a lyrics format")
+        #expect(error.errorDescription?.contains("LRC is a lyrics format") == true)
     }
 }
