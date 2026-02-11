@@ -247,6 +247,17 @@ enum MP4TestHelper {
         return buildAtom(type: "stco", data: payload.data)
     }
 
+    /// Builds a co64 (chunk offset) atom with 64-bit offsets.
+    static func buildCo64Atom(offsets: [UInt64]) -> Data {
+        var payload = BinaryWriter()
+        payload.writeUInt32(0)  // version + flags
+        payload.writeUInt32(UInt32(offsets.count))
+        for offset in offsets {
+            payload.writeUInt64(offset)
+        }
+        return buildAtom(type: "co64", data: payload.data)
+    }
+
     /// Builds an stsz (sample size) atom.
     static func buildStszAtom(defaultSize: UInt32, sizes: [UInt32]) -> Data {
         var payload = BinaryWriter()
