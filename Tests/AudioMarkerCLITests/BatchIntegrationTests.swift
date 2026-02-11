@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 @testable import AudioMarker
-@testable import AudioMarkerCLI
+@testable import AudioMarkerCommands
 
 @Suite("CLI Batch Integration")
 struct BatchIntegrationTests {

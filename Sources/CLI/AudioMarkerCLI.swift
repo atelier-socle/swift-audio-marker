@@ -1,10 +1,9 @@
 import ArgumentParser
 
 /// Command-line tool for managing audio file metadata and chapters.
-@main
-struct AudioMarkerCLI: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "audiomarker",
+public struct AudioMarkerCLI: AsyncParsableCommand {
+    public static let configuration = CommandConfiguration(
+        commandName: "audio-marker",
         abstract: "Manage audio file metadata, chapters, and artwork.",
         version: "0.1.0",
         subcommands: [
@@ -17,4 +16,6 @@ struct AudioMarkerCLI: AsyncParsableCommand {
             Info.self
         ]
     )
+
+    public init() {}
 }

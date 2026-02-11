@@ -1,7 +1,7 @@
 import ArgumentParser
 import Testing
 
-@testable import AudioMarkerCLI
+@testable import AudioMarkerCommands
 
 @Suite("Command Parsing")
 struct CommandParsingTests {

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AudioMarkerCLI
+@testable import AudioMarkerCommands
 
 @Suite("CLI Helpers")
 struct CLIHelpersTests {

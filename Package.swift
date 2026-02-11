@@ -16,7 +16,7 @@ let package = Package(
       targets: ["AudioMarker"]
     ),
     .executable(
-      name: "audiomarker",
+      name: "audio-marker",
       targets: ["AudioMarkerCLI"]
     )
   ],
@@ -31,13 +31,20 @@ let package = Package(
       name: "AudioMarker",
       path: "Sources/AudioMarker"
     ),
-    .executableTarget(
-      name: "AudioMarkerCLI",
+    .target(
+      name: "AudioMarkerCommands",
       dependencies: [
         "AudioMarker",
         .product(name: "ArgumentParser", package: "swift-argument-parser")
       ],
       path: "Sources/CLI"
+    ),
+    .executableTarget(
+      name: "AudioMarkerCLI",
+      dependencies: [
+        "AudioMarkerCommands"
+      ],
+      path: "Sources/CLIEntry"
     ),
     .testTarget(
       name: "AudioMarkerTests",
@@ -49,7 +56,7 @@ let package = Package(
     .testTarget(
       name: "AudioMarkerCLITests",
       dependencies: [
-        "AudioMarkerCLI",
+        "AudioMarkerCommands",
         "AudioMarker"
       ],
       path: "Tests/AudioMarkerCLITests"
