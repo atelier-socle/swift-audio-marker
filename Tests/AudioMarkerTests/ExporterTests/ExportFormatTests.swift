@@ -59,7 +59,7 @@ struct ExportFormatTests {
         #expect(ExportFormat.lrc.supportsImport)
         #expect(ExportFormat.podcastNamespace.supportsImport)
         #expect(!ExportFormat.markdown.supportsImport)
-        #expect(!ExportFormat.ttml.supportsImport)
+        #expect(ExportFormat.ttml.supportsImport)
     }
 
     // MARK: - ExportError Descriptions

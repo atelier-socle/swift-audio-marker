@@ -155,4 +155,173 @@ struct LyricsShowcaseTests {
         #expect(ttml.contains(">Goodbye</p>"))
         #expect(ttml.contains("end=\"00:00:30.000\""))
     }
+
+    // MARK: - TTML Import
+
+    @Test("Parse TTML into synchronized lyrics")
+    func parseTTML() throws {
+        let ttml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+                xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+              <head>
+                <metadata>
+                  <ttm:title>My Song</ttm:title>
+                </metadata>
+              </head>
+              <body>
+                <div>
+                  <p begin="00:00:00.000" end="00:00:05.000">Welcome to the show</p>
+                  <p begin="00:00:05.000" end="00:00:12.000">This is the first verse</p>
+                  <p begin="00:00:12.000" end="00:00:20.000">Here comes the chorus</p>
+                </div>
+              </body>
+            </tt>
+            """
+
+        let parser = TTMLParser()
+        let lyrics = try parser.parseLyrics(from: ttml)
+
+        #expect(lyrics.count == 1)
+        #expect(lyrics[0].language == "eng")
+        #expect(lyrics[0].lines.count == 3)
+        #expect(lyrics[0].lines[0].text == "Welcome to the show")
+        #expect(lyrics[0].lines[0].time == .zero)
+        #expect(lyrics[0].lines[1].text == "This is the first verse")
+        #expect(lyrics[0].lines[2].text == "Here comes the chorus")
+    }
+
+    @Test("TTML karaoke import preserves word-level timing")
+    func ttmlKaraokeImport() throws {
+        let ttml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml">
+              <body>
+                <div>
+                  <p begin="00:00:00.000" end="00:00:05.000">
+                    <span begin="00:00:00.000" end="00:00:01.500">Never</span>
+                    <span begin="00:00:01.500" end="00:00:03.000">gonna</span>
+                    <span begin="00:00:03.000" end="00:00:05.000">give</span>
+                  </p>
+                </div>
+              </body>
+            </tt>
+            """
+
+        let parser = TTMLParser()
+        let lyrics = try parser.parseLyrics(from: ttml)
+
+        let line = lyrics[0].lines[0]
+        #expect(line.isKaraoke)
+        #expect(line.segments.count == 3)
+        #expect(line.segments[0].text == "Never")
+        #expect(line.segments[0].startTime == .zero)
+        #expect(line.segments[0].endTime == .milliseconds(1500))
+        #expect(line.segments[1].text == "gonna")
+        #expect(line.segments[2].text == "give")
+    }
+
+    @Test("TTML multi-language import")
+    func ttmlMultiLanguage() throws {
+        let ttml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml">
+              <body>
+                <div xml:lang="en">
+                  <p begin="00:00:00.000" end="00:00:05.000">Hello world</p>
+                </div>
+                <div xml:lang="ja">
+                  <p begin="00:00:00.000" end="00:00:05.000">こんにちは世界</p>
+                </div>
+              </body>
+            </tt>
+            """
+
+        let parser = TTMLParser()
+        let lyrics = try parser.parseLyrics(from: ttml)
+
+        #expect(lyrics.count == 2)
+        #expect(lyrics[0].language == "eng")
+        #expect(lyrics[0].lines[0].text == "Hello world")
+        #expect(lyrics[1].language == "jpn")
+        #expect(lyrics[1].lines[0].text == "こんにちは世界")
+    }
+
+    // MARK: - TTML Round-Trip
+
+    @Test("TTML round-trip: parse → export → parse")
+    func ttmlRoundTrip() throws {
+        let original = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml">
+              <body>
+                <div>
+                  <p begin="00:00:00.000" end="00:00:03.000">First line</p>
+                  <p begin="00:00:03.000" end="00:00:06.000">Second line</p>
+                  <p begin="00:00:06.000" end="00:00:10.000">Third line</p>
+                </div>
+              </body>
+            </tt>
+            """
+
+        let parser = TTMLParser()
+
+        // Parse → SynchronizedLyrics
+        let lyrics = try parser.parseLyrics(from: original)
+        #expect(lyrics[0].lines.count == 3)
+
+        // Export → TTML
+        let exported = TTMLExporter.export(
+            lyrics[0], audioDuration: .seconds(10))
+
+        // Re-parse → SynchronizedLyrics
+        let reparsed = try parser.parseLyrics(from: exported)
+        #expect(reparsed[0].lines.count == 3)
+        #expect(reparsed[0].lines[0].text == "First line")
+        #expect(reparsed[0].lines[1].text == "Second line")
+        #expect(reparsed[0].lines[2].text == "Third line")
+    }
+
+    @Test("TTML document round-trip preserves structure")
+    func ttmlDocumentRoundTrip() throws {
+        let parser = TTMLParser()
+
+        let ttml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
+                xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+                xmlns:tts="http://www.w3.org/ns/ttml#styling"
+                xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+                ttp:timeBase="media">
+              <head>
+                <metadata>
+                  <ttm:title>Round Trip Song</ttm:title>
+                </metadata>
+                <styling>
+                  <style xml:id="s1" tts:color="#FFFFFF"/>
+                </styling>
+              </head>
+              <body>
+                <div xml:lang="en">
+                  <p begin="00:00:00.000" end="00:00:05.000" style="s1">Hello</p>
+                </div>
+              </body>
+            </tt>
+            """
+
+        // Parse full document
+        let doc = try parser.parseDocument(from: ttml)
+        #expect(doc.title == "Round Trip Song")
+        #expect(doc.styles.count == 1)
+
+        // Export as document
+        let exported = TTMLExporter.exportDocument(doc)
+
+        // Re-parse
+        let reparsed = try parser.parseDocument(from: exported)
+        #expect(reparsed.title == "Round Trip Song")
+        #expect(reparsed.styles.count == 1)
+        #expect(reparsed.styles[0].id == "s1")
+        #expect(reparsed.divisions[0].paragraphs[0].text == "Hello")
+    }
 }

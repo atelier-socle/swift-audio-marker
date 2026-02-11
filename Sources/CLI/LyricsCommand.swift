@@ -6,7 +6,7 @@ import Foundation
 struct Lyrics: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with synchronized lyrics.",
-        subcommands: [Export.self]
+        subcommands: [Export.self, Import.self]
     )
 }
 
@@ -63,6 +63,64 @@ extension Lyrics {
             } else {
                 print(output)
             }
+        }
+    }
+}
+
+// MARK: - Import
+
+extension Lyrics {
+
+    /// Imports synchronized lyrics from a file into an audio file.
+    struct Import: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Import synchronized lyrics into an audio file."
+        )
+
+        @Argument(help: "Path to the audio file.")
+        var file: String
+
+        @Option(name: .long, help: "Path to the lyrics file (LRC or TTML).")
+        var from: String
+
+        @Option(name: .long, help: "Import format: lrc or ttml.")
+        var format: String = "lrc"
+
+        @Option(name: .long, help: "ISO 639-2 language code (3 characters, e.g., eng).")
+        var language: String = "und"
+
+        mutating func run() throws {
+            let fileURL = CLIHelpers.resolveURL(file)
+            let fromURL = CLIHelpers.resolveURL(from)
+            let engine = AudioMarkerEngine()
+
+            let content = try String(contentsOf: fromURL, encoding: .utf8)
+            let exportFormat = try CLIHelpers.parseExportFormat(format)
+
+            let lyrics: [SynchronizedLyrics]
+            switch exportFormat {
+            case .lrc:
+                lyrics = [try LRCParser.parse(content, language: language)]
+            case .ttml:
+                lyrics = try TTMLParser().parseLyrics(from: content)
+            default:
+                throw ValidationError(
+                    "Unsupported lyrics import format \"\(format)\". Expected: lrc, ttml."
+                )
+            }
+
+            var info: AudioFileInfo
+            do {
+                info = try engine.read(from: fileURL)
+            } catch {
+                info = AudioFileInfo()
+            }
+
+            info.metadata.synchronizedLyrics = lyrics
+            try engine.modify(info, in: fileURL)
+
+            let count = lyrics.reduce(0) { $0 + $1.lines.count }
+            print("Imported \(count) lyric lines from \(fromURL.lastPathComponent).")
         }
     }
 }

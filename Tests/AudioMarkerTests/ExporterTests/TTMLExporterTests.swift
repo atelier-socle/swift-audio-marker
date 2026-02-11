@@ -127,4 +127,43 @@ struct TTMLExporterTests {
         let result = TTMLExporter.export(lyrics)
         #expect(result.contains("begin=\"00:00:02.000\" end=\"00:00:07.000\""))
     }
+
+    // MARK: - Karaoke Spans
+
+    @Test("Exports karaoke line with span elements")
+    func exportKaraokeSpans() {
+        let segments = [
+            LyricSegment(
+                startTime: .zero, endTime: .seconds(2), text: "Hello"),
+            LyricSegment(
+                startTime: .seconds(2), endTime: .seconds(5), text: "world")
+        ]
+        let lyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(
+                    time: .zero, text: "Hello world", segments: segments)
+            ])
+        let result = TTMLExporter.export(lyrics, audioDuration: .seconds(10))
+        #expect(result.contains("<span begin=\"00:00:00.000\" end=\"00:00:02.000\">Hello</span>"))
+        #expect(result.contains("<span begin=\"00:00:02.000\" end=\"00:00:05.000\">world</span>"))
+    }
+
+    @Test("Exports karaoke span with style")
+    func exportKaraokeSpanWithStyle() {
+        let segments = [
+            LyricSegment(
+                startTime: .zero, endTime: .seconds(1), text: "Word",
+                styleID: "highlight")
+        ]
+        let lyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(
+                    time: .zero, text: "Word", segments: segments)
+            ])
+        let result = TTMLExporter.export(lyrics, audioDuration: .seconds(5))
+        #expect(result.contains("style=\"highlight\""))
+    }
+
 }

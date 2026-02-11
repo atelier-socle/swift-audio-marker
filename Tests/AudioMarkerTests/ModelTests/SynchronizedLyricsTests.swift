@@ -98,4 +98,35 @@ struct SynchronizedLyricsTests {
         #expect(line.time == .milliseconds(2500))
         #expect(line.text == "Hello world")
     }
+
+    @Test("LyricLine without segments has empty segments")
+    func lyricLineEmptySegments() {
+        let line = LyricLine(time: .zero, text: "No karaoke")
+        #expect(line.segments.isEmpty)
+        #expect(!line.isKaraoke)
+    }
+
+    @Test("LyricLine with segments is karaoke")
+    func lyricLineWithSegments() {
+        let segments = [
+            LyricSegment(startTime: .zero, endTime: .seconds(1), text: "Hello"),
+            LyricSegment(startTime: .seconds(1), endTime: .seconds(2), text: "world")
+        ]
+        let line = LyricLine(time: .zero, text: "Hello world", segments: segments)
+        #expect(line.isKaraoke)
+        #expect(line.segments.count == 2)
+        #expect(line.segments[0].text == "Hello")
+        #expect(line.segments[1].text == "world")
+    }
+
+    @Test("LyricLine with segments is Hashable")
+    func lyricLineKaraokeHashable() {
+        let segments = [
+            LyricSegment(startTime: .zero, endTime: .seconds(1), text: "A")
+        ]
+        let line1 = LyricLine(time: .zero, text: "A", segments: segments)
+        let line2 = LyricLine(time: .zero, text: "A", segments: segments)
+        #expect(line1 == line2)
+        #expect(line1.hashValue == line2.hashValue)
+    }
 }

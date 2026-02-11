@@ -14,7 +14,7 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     case markdown
     /// LRC synchronized lyrics format.
     case lrc
-    /// W3C Timed Text Markup Language (export only).
+    /// W3C Timed Text Markup Language.
     case ttml
     /// Podcasting 2.0 (podcast-namespace) JSON format.
     case podcastNamespace
@@ -36,8 +36,8 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     /// Whether this format supports importing.
     public var supportsImport: Bool {
         switch self {
-        case .markdown, .ttml: false
-        case .lrc: true
+        case .markdown: false
+        case .lrc, .ttml: true
         case .podcastNamespace: true
         default: true
         }
