@@ -97,11 +97,14 @@ public enum PodcastNamespaceParser: Sendable {
 extension PodcastNamespaceParser {
 
     /// Formats a start time as a number, using integer when fractional part is zero.
+    ///
+    /// Uses `NSDecimalNumber` for fractional values to avoid IEEE 754 artifacts
+    /// (e.g. `30.507999999999999` instead of `30.508`) in JSON output.
     private static func formatStartTime(_ seconds: TimeInterval) -> Any {
-        let rounded = (seconds * 1000).rounded() / 1000
-        if rounded == rounded.rounded(.down) {
-            return Int(rounded)
+        let millis = Int((seconds * 1000).rounded())
+        if millis % 1000 == 0 {
+            return millis / 1000
         }
-        return rounded
+        return NSDecimalNumber(decimal: Decimal(millis) / Decimal(1000))
     }
 }

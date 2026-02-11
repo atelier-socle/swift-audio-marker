@@ -177,6 +177,27 @@ struct PodcastNamespaceParserTests {
         #expect(json.contains("168.5"))
     }
 
+    @Test("Export milliseconds rounds to 3 decimal places without floating-point artifacts")
+    func exportMillisecondsRounded() throws {
+        let chapters = ChapterList([
+            Chapter(start: .milliseconds(30508), title: "Precise")
+        ])
+        let json = try PodcastNamespaceParser.export(chapters)
+        #expect(json.contains("30.508"))
+        #expect(!json.contains("30.507"))
+        #expect(!json.contains("30.509"))
+    }
+
+    @Test("Export whole seconds as integer without decimals")
+    func exportWholeSecondsAsInteger() throws {
+        let chapters = ChapterList([
+            Chapter(start: .seconds(480), title: "Eight Minutes")
+        ])
+        let json = try PodcastNamespaceParser.export(chapters)
+        #expect(json.contains("\"startTime\" : 480"))
+        #expect(!json.contains("480."))
+    }
+
     // MARK: - Round-Trip
 
     @Test("Round-trip preserves data")
