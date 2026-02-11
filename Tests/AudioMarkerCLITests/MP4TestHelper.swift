@@ -280,6 +280,17 @@ enum MP4TestHelper {
         return buildAtom(type: "stsc", data: payload.data)
     }
 
+    // MARK: - Artwork
+
+    /// Builds a minimal JPEG-like data blob with valid magic bytes.
+    static func buildMinimalJPEG(size: Int = 64) -> Data {
+        var data = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        if size > 4 {
+            data.append(Data(repeating: 0x00, count: size - 4))
+        }
+        return data
+    }
+
     // MARK: - Data Payload
 
     /// Builds the payload for a data atom (type indicator + locale + value).

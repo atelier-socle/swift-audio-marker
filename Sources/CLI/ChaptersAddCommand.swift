@@ -24,7 +24,7 @@ extension Chapters {
 
         @Option(
             name: .long,
-            help: "Path to artwork image (JPEG or PNG) for this chapter. Note: per-chapter artwork is only supported in MP3 (ID3) files."
+            help: "Path to artwork image (JPEG or PNG) for this chapter."
         )
         var artwork: String?
 
@@ -55,20 +55,6 @@ extension Chapters {
             info.chapters.clearEndTimes()
 
             try engine.modify(info, in: fileURL)
-
-            let detected = try engine.detectFormat(of: fileURL)
-            if detected != .mp3 {
-                if chapterURL != nil {
-                    print(
-                        "Note: Chapter URLs are only persisted in MP3 files. The URL was not saved."
-                    )
-                }
-                if chapterArtwork != nil {
-                    print(
-                        "Note: Per-chapter artwork is only supported in MP3 files. The artwork was not saved."
-                    )
-                }
-            }
 
             print("Added chapter \"\(title)\" at \(timestamp.shortDescription).")
         }

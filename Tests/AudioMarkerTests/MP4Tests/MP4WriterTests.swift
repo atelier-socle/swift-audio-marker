@@ -332,7 +332,144 @@ struct MP4WriterTests {
         #expect(stcoOffset < mdat.offset + mdat.size)
     }
 
-    // MARK: - Error Cases
+}
+
+// MARK: - Chapter URLs
+
+extension MP4WriterTests {
+
+    @Test("Round-trip chapter URLs")
+    func roundTripChapterURLs() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "Intro",
+                url: URL(string: "https://example.com/intro")),
+            Chapter(
+                start: .seconds(30.0), title: "Main",
+                url: URL(string: "https://example.com/main")),
+            Chapter(start: .seconds(60.0), title: "Outro")
+        ])
+
+        try writer.write(info, to: url)
+        let readBack = try reader.read(from: url)
+
+        #expect(readBack.chapters.count == 3)
+        #expect(readBack.chapters[0].url?.absoluteString == "https://example.com/intro")
+        #expect(readBack.chapters[1].url?.absoluteString == "https://example.com/main")
+        #expect(readBack.chapters[2].url == nil)
+    }
+}
+
+// MARK: - Chapter Artwork
+
+extension MP4WriterTests {
+
+    @Test("Round-trip chapter artwork")
+    func roundTripChapterArtwork() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 100)
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "With Art",
+                artwork: Artwork(data: jpegData, format: .jpeg)),
+            Chapter(
+                start: .seconds(30.0), title: "With Art 2",
+                artwork: Artwork(data: jpegData, format: .jpeg))
+        ])
+
+        try writer.write(info, to: url)
+        let readBack = try reader.read(from: url)
+
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].artwork?.format == .jpeg)
+        #expect(readBack.chapters[0].artwork?.data == jpegData)
+        #expect(readBack.chapters[1].artwork?.format == .jpeg)
+    }
+
+    @Test("Round-trip chapter URLs and artwork together")
+    func roundTripChapterURLsAndArtwork() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 80)
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "Intro",
+                url: URL(string: "https://example.com"),
+                artwork: Artwork(data: jpegData, format: .jpeg)),
+            Chapter(
+                start: .seconds(30.0), title: "Main",
+                url: URL(string: "https://example.com/2"),
+                artwork: Artwork(data: jpegData, format: .jpeg))
+        ])
+
+        try writer.write(info, to: url)
+        let readBack = try reader.read(from: url)
+
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].url?.absoluteString == "https://example.com")
+        #expect(readBack.chapters[0].artwork?.format == .jpeg)
+        #expect(readBack.chapters[1].url?.absoluteString == "https://example.com/2")
+        #expect(readBack.chapters[1].artwork?.format == .jpeg)
+    }
+
+    @Test("tref/chap contains multiple track IDs when artwork present")
+    func trefChapContainsMultipleTrackIDs() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let jpegData = MP4TestHelper.buildMinimalJPEG()
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "Ch1",
+                artwork: Artwork(data: jpegData, format: .jpeg))
+        ])
+
+        try writer.write(info, to: url)
+
+        // Parse the output file and check tref/chap.
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        let moov = try #require(atoms.first { $0.type == "moov" })
+
+        // Find audio track's tref/chap.
+        var chapIDs: [UInt32] = []
+        for trak in moov.children(ofType: "trak") {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                let data = try? fileReader.read(at: hdlr.dataOffset, count: 12),
+                String(data: data[8..<12], encoding: .isoLatin1) == "soun",
+                let tref = trak.child(ofType: "tref"),
+                let chap = tref.child(ofType: "chap")
+            {
+                let count = Int(chap.dataSize) / 4
+                let chapData = try fileReader.read(at: chap.dataOffset, count: count * 4)
+                var binaryReader = BinaryReader(data: chapData)
+                for _ in 0..<count {
+                    chapIDs.append(try binaryReader.readUInt32())
+                }
+            }
+        }
+
+        // Should have 2 IDs: text track and video track.
+        #expect(chapIDs.count == 2)
+    }
+}
+
+// MARK: - Error Cases
+
+extension MP4WriterTests {
 
     @Test("Throws for file without moov")
     func missingMoov() throws {

@@ -112,17 +112,110 @@ struct MP4ShowcaseTests {
         #expect(after.metadata.artist == nil)
     }
 
+    // MARK: - Chapter URLs & Artwork
+
+    @Test("M4A chapter URL round-trip")
+    func m4aChapterURLRoundTrip() throws {
+        let fileData = buildMP4WithMdat(ilstItems: [])
+        let url = try MP4TestHelper.createTempFile(data: fileData)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "With URL",
+                url: URL(string: "https://example.com/chapter1")),
+            Chapter(start: .seconds(30.0), title: "No URL")
+        ])
+        try engine.write(info, to: url)
+
+        let readBack = try engine.read(from: url)
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].url?.absoluteString == "https://example.com/chapter1")
+        #expect(readBack.chapters[1].url == nil)
+    }
+
+    @Test("M4A chapter artwork round-trip")
+    func m4aChapterArtworkRoundTrip() throws {
+        let fileData = buildMP4WithMdat(ilstItems: [])
+        let url = try MP4TestHelper.createTempFile(data: fileData)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 100)
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "Art Chapter",
+                artwork: Artwork(data: jpegData, format: .jpeg)),
+            Chapter(
+                start: .seconds(30.0), title: "Art Chapter 2",
+                artwork: Artwork(data: jpegData, format: .jpeg))
+        ])
+        try engine.write(info, to: url)
+
+        let readBack = try engine.read(from: url)
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].artwork?.format == .jpeg)
+        #expect(readBack.chapters[0].artwork?.data == jpegData)
+    }
+
+    @Test("M4A chapter URL and artwork round-trip")
+    func m4aChapterURLAndArtworkRoundTrip() throws {
+        let fileData = buildMP4WithMdat(ilstItems: [])
+        let url = try MP4TestHelper.createTempFile(data: fileData)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 80)
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "Full Chapter",
+                url: URL(string: "https://example.com"),
+                artwork: Artwork(data: jpegData, format: .jpeg)),
+            Chapter(
+                start: .seconds(30.0), title: "Second",
+                url: URL(string: "https://example.com/2"),
+                artwork: Artwork(data: jpegData, format: .jpeg))
+        ])
+        try engine.write(info, to: url)
+
+        let readBack = try engine.read(from: url)
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].url?.absoluteString == "https://example.com")
+        #expect(readBack.chapters[0].artwork?.format == .jpeg)
+        #expect(readBack.chapters[1].url?.absoluteString == "https://example.com/2")
+        #expect(readBack.chapters[1].artwork?.format == .jpeg)
+    }
+
     // MARK: - Helpers
 
-    /// Builds an MP4 file with metadata and an mdat atom (required for write/strip).
+    /// Builds an MP4 file with metadata, audio track, and mdat (required for write/strip).
     private func buildMP4WithMdat(ilstItems: [Data]) -> Data {
         let ftyp = MP4TestHelper.buildFtyp()
         let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
         let ilst = MP4TestHelper.buildContainerAtom(type: "ilst", children: ilstItems)
         let meta = MP4TestHelper.buildMetaAtom(children: [ilst])
         let udta = MP4TestHelper.buildContainerAtom(type: "udta", children: [meta])
-        let moov = MP4TestHelper.buildContainerAtom(type: "moov", children: [mvhd, udta])
-        let mdat = MP4TestHelper.buildAtom(type: "mdat", data: Data(repeating: 0xFF, count: 128))
+
+        // Audio track (required for tref/chap during chapter write).
+        let mdatContent = Data(repeating: 0xFF, count: 128)
+        let stco = MP4TestHelper.buildStcoAtom(offsets: [0])
+        let stsz = MP4TestHelper.buildStszAtom(
+            defaultSize: UInt32(mdatContent.count), sizes: [])
+        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
+        let stsc = MP4TestHelper.buildStscAtom()
+        let stbl = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, stco, stsz, stsc])
+        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
+        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
+        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
+        let mdia = MP4TestHelper.buildContainerAtom(
+            type: "mdia", children: [mdhd, hdlr, minf])
+        let audioTrak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
+
+        let moov = MP4TestHelper.buildContainerAtom(
+            type: "moov", children: [mvhd, audioTrak, udta])
+        let mdat = MP4TestHelper.buildAtom(type: "mdat", data: mdatContent)
         var file = Data()
         file.append(ftyp)
         file.append(moov)

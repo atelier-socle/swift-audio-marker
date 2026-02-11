@@ -44,7 +44,9 @@ public struct MP4Writer: Sendable {
 
         let context = WriteContext(
             reader: reader, atoms: atoms, layout: layout,
-            newMoov: adjustedMoov, chapterSampleData: buildResult.chapterSampleData)
+            newMoov: adjustedMoov,
+            chapterSampleData: buildResult.chapterSampleData,
+            artworkSampleData: buildResult.artworkSampleData)
         try writeToTempFile(context, source: url)
     }
 
@@ -80,7 +82,9 @@ public struct MP4Writer: Sendable {
 
         let context = WriteContext(
             reader: reader, atoms: atoms, layout: layout,
-            newMoov: adjustedMoov, chapterSampleData: buildResult.chapterSampleData)
+            newMoov: adjustedMoov,
+            chapterSampleData: buildResult.chapterSampleData,
+            artworkSampleData: buildResult.artworkSampleData)
         try writeToTempFile(context, source: url)
     }
 }
@@ -89,7 +93,7 @@ public struct MP4Writer: Sendable {
 
 extension MP4Writer {
 
-    /// Adjusts moov chunk offsets for the new layout and patches text track stco.
+    /// Adjusts moov chunk offsets for the new layout and patches text/video track stco.
     private func adjustMoovForLayout(
         moovBuilder: MP4MoovBuilder,
         buildResult: MP4MoovBuilder.MoovBuildResult,
@@ -98,7 +102,9 @@ extension MP4Writer {
         reader: FileReader
     ) throws -> Data {
         var moovData = buildResult.moov
-        let hasChapterMdat = !buildResult.chapterSampleData.isEmpty
+        let hasChapterMdat =
+            !buildResult.chapterSampleData.isEmpty
+            || !buildResult.artworkSampleData.isEmpty
 
         if layout.moovBeforeMdat {
             // moov-first: delta = (new moov size) - (original moov→mdat span)
@@ -106,29 +112,25 @@ extension MP4Writer {
             let delta = Int64(moovData.count) - originalSpan
             moovData = try moovBuilder.adjustChunkOffsets(in: moovData, delta: delta)
 
-            // Patch text track stco: chapter mdat is placed after the original mdat.
+            // Patch chapter track stco entries: chapter mdat is after the original mdat.
             if hasChapterMdat {
                 let originalMdatEnd = layout.mdat.offset + layout.mdat.size
                 let newMdatEnd = Int64(originalMdatEnd) + delta
                 let chapterMdatDataStart = UInt32(newMdatEnd + 8)  // after chapter mdat header
-                patchTextTrackStco(
+                patchChapterTrackStco(
                     in: &moovData, builder: moovBuilder,
                     buildResult: buildResult,
-                    chapterSampleData: buildResult.chapterSampleData,
                     chapterMdatDataStart: chapterMdatDataStart)
             }
         } else {
             // mdat-first: moov comes after mdat. Audio stco is already correct.
-            // But if chapter mdat is appended between original mdat and moov,
-            // we need no delta for audio stco (mdat position unchanged).
-            // Patch text track stco: chapter mdat is placed after original mdat.
+            // Patch chapter track stco: chapter mdat is placed after original mdat.
             if hasChapterMdat {
                 let originalMdatEnd = layout.mdat.offset + layout.mdat.size
                 let chapterMdatDataStart = UInt32(originalMdatEnd + 8)
-                patchTextTrackStco(
+                patchChapterTrackStco(
                     in: &moovData, builder: moovBuilder,
                     buildResult: buildResult,
-                    chapterSampleData: buildResult.chapterSampleData,
                     chapterMdatDataStart: chapterMdatDataStart)
             }
         }
@@ -136,34 +138,65 @@ extension MP4Writer {
         return moovData
     }
 
-    /// Patches the text track stco entries with absolute offsets to chapter samples.
-    private func patchTextTrackStco(
+    /// Patches both text track and video track stco entries.
+    private func patchChapterTrackStco(
         in moovData: inout Data,
         builder: MP4MoovBuilder,
         buildResult: MP4MoovBuilder.MoovBuildResult,
-        chapterSampleData: Data,
         chapterMdatDataStart: UInt32
     ) {
-        // Calculate absolute offset for each sample in the chapter mdat.
-        var sampleOffsets: [UInt32] = []
-        var currentOffset = chapterMdatDataStart
-
-        // We need to know individual sample sizes from the sample data.
-        // Samples are: UInt16(textLength) + UTF-8 text bytes.
-        var position = 0
-        let data = chapterSampleData
-        while position + 2 <= data.count {
-            sampleOffsets.append(currentOffset)
-            let textLength = Int(UInt16(data[position]) << 8 | UInt16(data[position + 1]))
-            let sampleSize = UInt32(2 + textLength)
-            currentOffset += sampleSize
-            position += Int(sampleSize)
+        // Patch text track stco.
+        if !buildResult.chapterSampleData.isEmpty {
+            let textOffsets = calculateSampleOffsets(
+                sampleSizes: buildResult.textSampleSizes,
+                mdatDataStart: chapterMdatDataStart)
+            builder.patchStcoEntries(
+                in: &moovData,
+                offsets: textOffsets,
+                positions: buildResult.textTrackStcoOffsets)
         }
 
-        builder.patchStcoEntries(
-            in: &moovData,
-            offsets: sampleOffsets,
-            positions: buildResult.textTrackStcoOffsets)
+        // Patch video track stco: artwork samples start after text samples.
+        if !buildResult.artworkSampleData.isEmpty,
+            !buildResult.videoTrackStcoOffsets.isEmpty
+        {
+            let videoMdatDataStart =
+                chapterMdatDataStart + UInt32(buildResult.chapterSampleData.count)
+            let videoOffsets = calculateArtworkSampleOffsets(
+                sampleSizes: buildResult.artworkSampleSizes,
+                mdatDataStart: videoMdatDataStart)
+            builder.patchStcoEntries(
+                in: &moovData,
+                offsets: videoOffsets,
+                positions: buildResult.videoTrackStcoOffsets)
+        }
+    }
+
+    /// Calculates absolute offsets for text samples in the chapter mdat.
+    private func calculateSampleOffsets(
+        sampleSizes: [UInt32], mdatDataStart: UInt32
+    ) -> [UInt32] {
+        var offsets: [UInt32] = []
+        var currentOffset = mdatDataStart
+        for size in sampleSizes {
+            offsets.append(currentOffset)
+            currentOffset += size
+        }
+        return offsets
+    }
+
+    /// Calculates absolute offsets for artwork samples using stored sample sizes.
+    private func calculateArtworkSampleOffsets(
+        sampleSizes: [UInt32],
+        mdatDataStart: UInt32
+    ) -> [UInt32] {
+        var offsets: [UInt32] = []
+        var currentOffset = mdatDataStart
+        for size in sampleSizes {
+            offsets.append(currentOffset)
+            currentOffset += size
+        }
+        return offsets
     }
 }
 
@@ -208,6 +241,7 @@ extension MP4Writer {
         let layout: FileLayout
         let newMoov: Data
         let chapterSampleData: Data
+        let artworkSampleData: Data
     }
 
     /// Writes the rebuilt file to a temporary path and atomically replaces the original.
@@ -254,15 +288,16 @@ extension MP4Writer {
         // Write new moov.
         try writer.write(context.newMoov)
 
-        // Stream original mdat and any remaining atoms.
-        try streamFromOffset(
-            context.layout.mdat.offset,
-            toEnd: context.reader.fileSize,
-            reader: context.reader, writer: writer)
+        // Stream original mdat only (excludes any old chapter mdat from prior writes).
+        try writer.copyChunked(
+            from: context.reader, offset: context.layout.mdat.offset,
+            count: context.layout.mdat.size)
 
         // Write chapter mdat (if any).
-        if !context.chapterSampleData.isEmpty {
-            try writeChapterMdat(context.chapterSampleData, writer: writer)
+        if !context.chapterSampleData.isEmpty || !context.artworkSampleData.isEmpty {
+            try writeChapterMdat(
+                textSamples: context.chapterSampleData,
+                artworkSamples: context.artworkSampleData, writer: writer)
         }
     }
 
@@ -289,21 +324,29 @@ extension MP4Writer {
             count: context.layout.mdat.size)
 
         // Write chapter mdat (if any).
-        if !context.chapterSampleData.isEmpty {
-            try writeChapterMdat(context.chapterSampleData, writer: writer)
+        if !context.chapterSampleData.isEmpty || !context.artworkSampleData.isEmpty {
+            try writeChapterMdat(
+                textSamples: context.chapterSampleData,
+                artworkSamples: context.artworkSampleData, writer: writer)
         }
 
         // Write new moov.
         try writer.write(context.newMoov)
     }
 
-    /// Writes a chapter mdat atom.
-    private func writeChapterMdat(_ sampleData: Data, writer: FileWriter) throws {
+    /// Writes a chapter mdat atom containing text samples and optional artwork samples.
+    private func writeChapterMdat(
+        textSamples: Data, artworkSamples: Data, writer: FileWriter
+    ) throws {
+        let totalSize = textSamples.count + artworkSamples.count
         var mdatHeader = BinaryWriter(capacity: 8)
-        mdatHeader.writeUInt32(UInt32(8 + sampleData.count))
+        mdatHeader.writeUInt32(UInt32(8 + totalSize))
         mdatHeader.writeLatin1String("mdat")
         try writer.write(mdatHeader.data)
-        try writer.write(sampleData)
+        try writer.write(textSamples)
+        if !artworkSamples.isEmpty {
+            try writer.write(artworkSamples)
+        }
     }
 
     /// Returns atoms in a range, excluding specified types.

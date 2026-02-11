@@ -209,6 +209,96 @@ struct CLIChaptersShowcaseTests {
         #expect(chapters[2].title == "Wrap Up")
     }
 
+    // MARK: - M4A Chapters
+
+    @Test("audiomarker chapters add — add chapter to M4A")
+    func m4aChaptersAdd() throws {
+        let url = try CLITestHelper.createM4A(title: "M4A Test")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var cmd = try Chapters.Add.parse([
+            url.path, "--start", "00:00:00", "--title", "Intro"
+        ])
+        try cmd.run()
+
+        let chapters = try engine.readChapters(from: url)
+        #expect(chapters.count == 1)
+        #expect(chapters[0].title == "Intro")
+    }
+
+    @Test("audiomarker chapters add --url — M4A chapter with URL")
+    func m4aChaptersAddWithURL() throws {
+        let url = try CLITestHelper.createM4A(title: "URL Test")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var cmd = try Chapters.Add.parse([
+            url.path, "--start", "00:00:00", "--title", "With URL",
+            "--url", "https://example.com/chapter1"
+        ])
+        try cmd.run()
+
+        let chapters = try engine.readChapters(from: url)
+        #expect(chapters.count == 1)
+        #expect(chapters[0].title == "With URL")
+        #expect(chapters[0].url?.absoluteString == "https://example.com/chapter1")
+    }
+
+    @Test("audiomarker chapters add --artwork — M4A chapter with artwork")
+    func m4aChaptersAddWithArtwork() throws {
+        let url = try CLITestHelper.createM4A(title: "Artwork Test")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Create a temporary JPEG file for the --artwork option.
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 100)
+        let jpegURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".jpg")
+        try jpegData.write(to: jpegURL)
+        defer { try? FileManager.default.removeItem(at: jpegURL) }
+
+        var cmd = try Chapters.Add.parse([
+            url.path, "--start", "00:00:00", "--title", "Art Chapter",
+            "--artwork", jpegURL.path
+        ])
+        try cmd.run()
+
+        let chapters = try engine.readChapters(from: url)
+        #expect(chapters.count == 1)
+        #expect(chapters[0].title == "Art Chapter")
+        #expect(chapters[0].artwork?.format == .jpeg)
+        #expect(chapters[0].artwork?.data == jpegData)
+    }
+
+    @Test("audiomarker chapters list — M4A shows URL and artwork")
+    func m4aChaptersListShowsURLAndArtwork() throws {
+        let url = try CLITestHelper.createM4A(title: "List Test")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Create a temporary JPEG file for the --artwork option.
+        let jpegData = MP4TestHelper.buildMinimalJPEG(size: 80)
+        let jpegURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".jpg")
+        try jpegData.write(to: jpegURL)
+        defer { try? FileManager.default.removeItem(at: jpegURL) }
+
+        // Add chapter with both URL and artwork.
+        var addCmd = try Chapters.Add.parse([
+            url.path, "--start", "00:00:00", "--title", "Full Chapter",
+            "--url", "https://example.com",
+            "--artwork", jpegURL.path
+        ])
+        try addCmd.run()
+
+        // List should run without error.
+        var listCmd = try Chapters.List.parse([url.path])
+        try listCmd.run()
+
+        // Verify data round-trip via engine.
+        let chapters = try engine.readChapters(from: url)
+        #expect(chapters.count == 1)
+        #expect(chapters[0].url?.absoluteString == "https://example.com")
+        #expect(chapters[0].artwork?.format == .jpeg)
+    }
+
     // MARK: - Helpers
 
     private func createMP3With3Chapters() throws -> URL {

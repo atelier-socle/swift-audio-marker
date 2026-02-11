@@ -42,6 +42,24 @@ enum CLITestHelper {
         let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
 
         var moovChildren: [Data] = [mvhd]
+
+        // Audio track (required for tref/chap during chapter write).
+        let mdatContent = Data(repeating: 0xFF, count: 128)
+        let stco = MP4TestHelper.buildStcoAtom(offsets: [0])
+        let stsz = MP4TestHelper.buildStszAtom(
+            defaultSize: UInt32(mdatContent.count), sizes: [])
+        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
+        let stsc = MP4TestHelper.buildStscAtom()
+        let stbl = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, stco, stsz, stsc])
+        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
+        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
+        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
+        let mdia = MP4TestHelper.buildContainerAtom(
+            type: "mdia", children: [mdhd, hdlr, minf])
+        let audioTrak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
+        moovChildren.append(audioTrak)
+
         if let title {
             let items = [MP4TestHelper.buildILSTTextItem(type: "\u{00A9}nam", text: title)]
             let ilst = MP4TestHelper.buildContainerAtom(type: "ilst", children: items)
@@ -50,7 +68,7 @@ enum CLITestHelper {
             moovChildren.append(udta)
         }
         let moov = MP4TestHelper.buildContainerAtom(type: "moov", children: moovChildren)
-        let mdat = MP4TestHelper.buildAtom(type: "mdat", data: Data(repeating: 0xFF, count: 128))
+        let mdat = MP4TestHelper.buildAtom(type: "mdat", data: mdatContent)
 
         var file = Data()
         file.append(ftyp)

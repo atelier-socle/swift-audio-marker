@@ -4,9 +4,8 @@ import Foundation
 ///
 /// Supports two chapter formats:
 /// - **Nero chapters** (`chpl` atom under `moov.udta`): timestamps in 100-nanosecond units.
-/// - **QuickTime chapter track**: text track referenced by `chap` track reference (best-effort).
-///
-/// - Note: v0.2.0 — Parse chapter URLs and per-chapter artwork from M4A.
+/// - **QuickTime chapter track**: text track referenced by `chap` track reference,
+///   with optional `href` URLs and per-chapter artwork from a video track.
 public struct MP4ChapterParser: Sendable {
 
     /// Creates an MP4 chapter parser.
@@ -16,7 +15,8 @@ public struct MP4ChapterParser: Sendable {
 
     /// Extracts chapters from the parsed atom tree.
     ///
-    /// Tries Nero chapters first (`chpl`), then falls back to QuickTime chapter track.
+    /// Tries QuickTime chapter track first (supports URLs and artwork),
+    /// then falls back to Nero chapters (`chpl`).
     /// - Parameters:
     ///   - atoms: Top-level atoms from ``MP4AtomParser``.
     ///   - reader: An open file reader for reading atom payloads.
@@ -30,13 +30,13 @@ public struct MP4ChapterParser: Sendable {
             return ChapterList()
         }
 
-        // Try Nero chapters first.
-        if let chapters = try parseNeroChapters(moov: moov, reader: reader) {
+        // Try QuickTime chapter track first (supports URLs and artwork).
+        if let chapters = try parseQuickTimeChapters(moov: moov, reader: reader) {
             return chapters
         }
 
-        // Fall back to QuickTime chapter track.
-        if let chapters = try parseQuickTimeChapters(moov: moov, reader: reader) {
+        // Fall back to Nero chapters.
+        if let chapters = try parseNeroChapters(moov: moov, reader: reader) {
             return chapters
         }
 
@@ -116,6 +116,8 @@ extension MP4ChapterParser {
     ///
     /// Best-effort: looks for a `trak` with handler type `text`, then
     /// reads sample times from `stts` and sample data from `stco`/`stsz`.
+    /// Parses `href` atoms from tx3g samples for chapter URLs, and reads
+    /// per-chapter artwork from a referenced video track.
     private func parseQuickTimeChapters(
         moov: MP4Atom,
         reader: FileReader
@@ -145,16 +147,44 @@ extension MP4ChapterParser {
 
         for index in 0..<sampleTimes.count {
             let seconds = Double(cumulativeTime) / Double(timescale)
-            let title = try readSampleText(
+            let duration = sampleTimes[index]
+            let content = try parseTx3gSample(
                 at: sampleOffsets[index],
                 size: sampleSizes[index],
                 reader: reader
             )
-            chapters.append(Chapter(start: .seconds(seconds), title: title))
-            cumulativeTime += sampleTimes[index]
+
+            // Filter spacer samples (whitespace-only title, duration <= 1 tick).
+            let trimmedTitle = content.title
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedTitle.isEmpty && duration <= 1 {
+                cumulativeTime += duration
+                continue
+            }
+
+            let title = trimmedTitle.isEmpty ? "Chapter \(chapters.count + 1)" : content.title
+            chapters.append(
+                Chapter(
+                    start: .seconds(seconds), title: title, url: content.url))
+            cumulativeTime += duration
         }
 
         guard !chapters.isEmpty else { return nil }
+
+        // Enrich chapters with per-chapter artwork from video track.
+        let artworks = readChapterArtwork(moov: moov, reader: reader)
+        if !artworks.isEmpty {
+            var enriched: [Chapter] = []
+            for (index, chapter) in chapters.enumerated() {
+                let art = index < artworks.count ? artworks[index] : nil
+                enriched.append(
+                    Chapter(
+                        start: chapter.start, title: chapter.title,
+                        url: chapter.url, artwork: art))
+            }
+            return ChapterList(enriched)
+        }
+
         return ChapterList(chapters)
     }
 
@@ -172,13 +202,22 @@ extension MP4ChapterParser {
 
     /// Checks if a `hdlr` atom has handler type `text` or `sbtl`.
     private func isTextHandler(_ hdlr: MP4Atom, reader: FileReader) -> Bool {
-        guard hdlr.dataSize >= 12 else { return false }
+        readHandlerType(hdlr, reader: reader).map { $0 == "text" || $0 == "sbtl" } ?? false
+    }
+
+    /// Checks if a `hdlr` atom has handler type `vide`.
+    private func isVideoHandler(_ hdlr: MP4Atom, reader: FileReader) -> Bool {
+        readHandlerType(hdlr, reader: reader) == "vide"
+    }
+
+    /// Reads the 4-character handler type from an `hdlr` atom.
+    private func readHandlerType(_ hdlr: MP4Atom, reader: FileReader) -> String? {
+        guard hdlr.dataSize >= 12 else { return nil }
         guard let data = try? reader.read(at: hdlr.dataOffset, count: 12) else {
-            return false
+            return nil
         }
         // hdlr format: version(1) + flags(3) + pre_defined(4) + handler_type(4)
-        let handlerType = String(data: data[8..<12], encoding: .isoLatin1)
-        return handlerType == "text" || handlerType == "sbtl"
+        return String(data: data[8..<12], encoding: .isoLatin1)
     }
 
     /// Reads the timescale from the `mdhd` atom in a track.
@@ -312,22 +351,209 @@ extension MP4ChapterParser {
         return sizes
     }
 
-    /// Reads a QuickTime text sample: 2-byte length prefix + UTF-8 text.
-    private func readSampleText(
+    // MARK: - tx3g Sample Parsing
+
+    /// Content extracted from a tx3g text sample.
+    private struct SampleContent {
+        let title: String
+        let url: URL?
+    }
+
+    /// Parses a tx3g text sample: 2-byte length prefix + UTF-8 text + optional `href` atom.
+    private func parseTx3gSample(
         at offset: UInt64,
         size: UInt32,
         reader: FileReader
-    ) throws -> String {
-        guard size >= 2 else { return "Chapter" }
+    ) throws -> SampleContent {
+        guard size >= 2 else { return SampleContent(title: "Chapter", url: nil) }
 
         let data = try reader.read(at: offset, count: Int(size))
         var binaryReader = BinaryReader(data: data)
 
         let textLength = Int(try binaryReader.readUInt16())
-        guard textLength > 0, binaryReader.remainingCount >= textLength else {
-            return "Chapter"
+        let title: String
+        if textLength > 0, binaryReader.remainingCount >= textLength {
+            title = try binaryReader.readUTF8String(count: textLength)
+        } else {
+            title = "Chapter"
         }
 
-        return try binaryReader.readUTF8String(count: textLength)
+        // Scan remaining bytes for an href atom after the text.
+        let textEnd = 2 + textLength
+        let url = parseHrefAtom(in: data, from: textEnd)
+
+        return SampleContent(title: title, url: url)
+    }
+
+    /// Scans for an `href` atom after the text portion of a tx3g sample.
+    ///
+    /// href atom format:
+    /// `[UInt32 atomSize] [FourCC "href"] [UInt16 0x0005] [UInt16 textCharCount] [UInt8 urlLength] [UTF-8 url] [UInt16 0x0000]`
+    private func parseHrefAtom(in data: Data, from startOffset: Int) -> URL? {
+        var position = startOffset
+        let hrefTag = Data("href".utf8)
+
+        // Scan for atom boundaries until we find "href".
+        while position + 8 <= data.count {
+            guard position + 4 <= data.count else { break }
+            let atomSize = Int(
+                UInt32(data[position]) << 24
+                    | UInt32(data[position + 1]) << 16
+                    | UInt32(data[position + 2]) << 8
+                    | UInt32(data[position + 3]))
+            guard atomSize >= 8, position + atomSize <= data.count else { break }
+
+            let typeStart = position + 4
+            if data[typeStart] == hrefTag[0],
+                data[typeStart + 1] == hrefTag[1],
+                data[typeStart + 2] == hrefTag[2],
+                data[typeStart + 3] == hrefTag[3]
+            {
+                // Found href atom. Parse payload.
+                // Payload: UInt16(flags) + UInt16(textCharCount) + UInt8(urlLength) + url + UInt16(0)
+                let payloadStart = position + 8
+                let payloadEnd = position + atomSize
+                let payloadSize = payloadEnd - payloadStart
+                guard payloadSize >= 5 else { return nil }
+
+                // Skip UInt16 flags + UInt16 textCharCount.
+                let urlLenOffset = payloadStart + 4
+                guard urlLenOffset < data.count else { return nil }
+                let urlLength = Int(data[urlLenOffset])
+                guard urlLength > 0, urlLenOffset + 1 + urlLength <= payloadEnd else { return nil }
+
+                let urlData = data[(urlLenOffset + 1)..<(urlLenOffset + 1 + urlLength)]
+                guard let urlString = String(data: urlData, encoding: .utf8),
+                    !urlString.isEmpty
+                else {
+                    return nil
+                }
+                return URL(string: urlString)
+            }
+
+            position += atomSize
+        }
+
+        return nil
+    }
+}
+
+// MARK: - Video Track Artwork
+
+extension MP4ChapterParser {
+
+    /// Reads per-chapter artwork from a video track referenced by `tref/chap`.
+    private func readChapterArtwork(moov: MP4Atom, reader: FileReader) -> [Artwork] {
+        guard let videoTrack = findVideoTrack(in: moov, reader: reader) else {
+            return []
+        }
+        return (try? readVideoTrackArtwork(from: videoTrack, reader: reader)) ?? []
+    }
+
+    /// Finds a video track referenced by any audio track's `tref/chap`.
+    private func findVideoTrack(in moov: MP4Atom, reader: FileReader) -> MP4Atom? {
+        let chapTrackIDs = findChapTrackIDs(in: moov, reader: reader)
+        guard !chapTrackIDs.isEmpty else { return nil }
+
+        for trak in moov.children(ofType: MP4AtomType.trak.rawValue) {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                isVideoHandler(hdlr, reader: reader),
+                let trackID = readTrackIDFromTkhd(trak, reader: reader),
+                chapTrackIDs.contains(trackID)
+            {
+                return trak
+            }
+        }
+        return nil
+    }
+
+    /// Returns all track IDs from `tref/chap` references on audio tracks.
+    private func findChapTrackIDs(in moov: MP4Atom, reader: FileReader) -> Set<UInt32> {
+        var trackIDs = Set<UInt32>()
+        for trak in moov.children(ofType: MP4AtomType.trak.rawValue) {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                readHandlerType(hdlr, reader: reader) == "soun",
+                let tref = trak.child(ofType: "tref"),
+                let chap = tref.child(ofType: "chap"),
+                chap.dataSize >= 4
+            {
+                let entryCount = Int(chap.dataSize) / 4
+                if let data = try? reader.read(
+                    at: chap.dataOffset, count: entryCount * 4)
+                {
+                    var binaryReader = BinaryReader(data: data)
+                    for _ in 0..<entryCount {
+                        if let id = try? binaryReader.readUInt32() {
+                            trackIDs.insert(id)
+                        }
+                    }
+                }
+            }
+        }
+        return trackIDs
+    }
+
+    /// Reads the track ID from a trak's tkhd atom.
+    private func readTrackIDFromTkhd(_ trak: MP4Atom, reader: FileReader) -> UInt32? {
+        guard let tkhd = trak.child(ofType: MP4AtomType.tkhd.rawValue),
+            let data = try? reader.read(
+                at: tkhd.dataOffset, count: min(Int(tkhd.dataSize), 24))
+        else {
+            return nil
+        }
+        let version = data[0]
+        let trackIDOffset = version == 1 ? 20 : 12
+        guard data.count >= trackIDOffset + 4 else { return nil }
+        return UInt32(data[trackIDOffset]) << 24
+            | UInt32(data[trackIDOffset + 1]) << 16
+            | UInt32(data[trackIDOffset + 2]) << 8
+            | UInt32(data[trackIDOffset + 3])
+    }
+
+    /// Reads per-chapter artwork from a video track's sample table.
+    private func readVideoTrackArtwork(
+        from trak: MP4Atom,
+        reader: FileReader
+    ) throws -> [Artwork] {
+        guard let stbl = trak.find(path: "mdia.minf.stbl") else { return [] }
+
+        let format = readVideoSampleFormat(stbl: stbl, reader: reader)
+        let sampleOffsets = try readChunkOffsets(stbl: stbl, reader: reader)
+        let sampleSizes = try readSampleSizes(stbl: stbl, reader: reader)
+
+        let count = min(sampleOffsets.count, sampleSizes.count)
+        guard count > 0 else { return [] }
+
+        var artworks: [Artwork] = []
+        for index in 0..<count {
+            let size = sampleSizes[index]
+            guard size > 0 else { continue }
+            let imageData = try reader.read(at: sampleOffsets[index], count: Int(size))
+            if let detected = ArtworkFormat.detect(from: imageData) {
+                artworks.append(Artwork(data: imageData, format: detected))
+            } else if let hintFormat = format {
+                artworks.append(Artwork(data: imageData, format: hintFormat))
+            }
+        }
+        return artworks
+    }
+
+    /// Reads the sample format from `stsd` in a video track (e.g., "jpeg" or "png ").
+    private func readVideoSampleFormat(
+        stbl: MP4Atom, reader: FileReader
+    ) -> ArtworkFormat? {
+        guard let stsd = stbl.child(ofType: "stsd"),
+            stsd.dataSize >= 16,
+            let data = try? reader.read(at: stsd.dataOffset, count: min(Int(stsd.dataSize), 16))
+        else {
+            return nil
+        }
+        // stsd: version+flags(4) + entry_count(4) + entry_size(4) + format(4)
+        let formatString = String(data: data[12..<16], encoding: .isoLatin1)
+        switch formatString {
+        case "jpeg": return .jpeg
+        case "png ": return .png
+        default: return nil
+        }
     }
 }

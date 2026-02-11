@@ -11,6 +11,7 @@ public struct MP4MoovBuilder: Sendable {
     private let metadataBuilder = MP4MetadataBuilder()
     private let atomBuilder = MP4AtomBuilder()
     private let textTrackBuilder = MP4TextTrackBuilder()
+    private let videoTrackBuilder = MP4VideoTrackBuilder()
 
     /// Creates an MP4 moov builder.
     public init() {}
@@ -23,9 +24,17 @@ public struct MP4MoovBuilder: Sendable {
         public let moov: Data
         /// Chapter text samples to be written in a separate mdat (empty if no chapters).
         public let chapterSampleData: Data
+        /// Per-sample sizes for text samples (matches chapter count).
+        public let textSampleSizes: [UInt32]
         /// Byte positions of the text track's stco entries relative to moov start.
         /// Used for patching absolute file offsets after layout is determined.
         public let textTrackStcoOffsets: [Int]
+        /// Per-chapter artwork image samples (empty if no chapters have artwork).
+        public let artworkSampleData: Data
+        /// Per-sample sizes for artwork images (matches `videoTrackStcoOffsets` count).
+        public let artworkSampleSizes: [UInt32]
+        /// Byte positions of the video track's stco entries relative to moov start.
+        public let videoTrackStcoOffsets: [Int]
     }
 
     // MARK: - Public API
@@ -60,18 +69,46 @@ public struct MP4MoovBuilder: Sendable {
             from: existingMoov, reader: reader,
             oldChapterTrackIDs: oldChapterTrackIDs)
 
+        let textTrackID = maxTrackID + 1
+        let videoTrackID = maxTrackID + 2
+
+        // Probe for video track (per-chapter artwork) before modifying children.
+        let videoResult: MP4VideoTrackBuilder.VideoTrackResult?
+        if hasChapters {
+            videoResult = videoTrackBuilder.buildVideoTrack(
+                chapters: chapters, trackID: videoTrackID,
+                movieTimescale: movieTimescale, movieDuration: movieDuration)
+        } else {
+            videoResult = nil
+        }
+        let hasVideoTrack = videoResult != nil
+
+        // Build tref/chap track ID list.
+        var chapTrackIDs: [UInt32] = []
+        if hasChapters {
+            chapTrackIDs.append(textTrackID)
+            if hasVideoTrack { chapTrackIDs.append(videoTrackID) }
+        }
+
         try updateAudioTrakTref(
             in: &children, audioTrack: audioTrack,
-            hasChapters: hasChapters, maxTrackID: maxTrackID, reader: reader)
+            hasChapters: hasChapters, chapTrackIDs: chapTrackIDs, reader: reader)
 
         var chapterSampleData = Data()
+        var textSampleSizes: [UInt32] = []
         var textTrackStcoOffsets: [Int] = []
         if hasChapters {
-            (chapterSampleData, textTrackStcoOffsets) = appendChapterTrack(
+            let chapterTrack = appendChapterTrack(
                 to: &children, chapters: chapters,
-                trackID: maxTrackID + 1,
+                trackID: textTrackID,
                 movieTimescale: movieTimescale, movieDuration: movieDuration)
+            chapterSampleData = chapterTrack.sampleData
+            textSampleSizes = chapterTrack.sampleSizes
+            textTrackStcoOffsets = chapterTrack.stcoOffsets
         }
+
+        let videoTrackData = appendVideoTrack(
+            videoResult: videoResult, to: &children)
 
         let chaptersOrNil: ChapterList? = hasChapters ? chapters : nil
         let udta = metadataBuilder.buildUdta(from: metadata, chapters: chaptersOrNil)
@@ -81,7 +118,11 @@ public struct MP4MoovBuilder: Sendable {
         return MoovBuildResult(
             moov: moov,
             chapterSampleData: chapterSampleData,
-            textTrackStcoOffsets: textTrackStcoOffsets)
+            textSampleSizes: textSampleSizes,
+            textTrackStcoOffsets: textTrackStcoOffsets,
+            artworkSampleData: videoTrackData.sampleData,
+            artworkSampleSizes: videoTrackData.sampleSizes,
+            videoTrackStcoOffsets: videoTrackData.stcoOffsets)
     }
 
     /// Adjusts chunk offsets (`stco`/`co64`) in moov data by a delta.
@@ -195,19 +236,25 @@ extension MP4MoovBuilder {
         return nil
     }
 
-    /// Reads the chapter track ID from the audio track's `tref/chap` reference.
-    private func findChapterTrackID(audioTrack: MP4Atom, reader: FileReader) -> UInt32? {
+    /// Reads all chapter track IDs from the audio track's `tref/chap` reference.
+    private func findAllChapterTrackIDs(
+        audioTrack: MP4Atom, reader: FileReader
+    ) -> [UInt32] {
         guard let tref = audioTrack.child(ofType: "tref"),
-            let chap = tref.child(ofType: "chap")
+            let chap = tref.child(ofType: "chap"),
+            chap.dataSize >= 4
         else {
-            return nil
+            return []
         }
-        guard chap.dataSize >= 4,
-            let data = try? reader.read(at: chap.dataOffset, count: 4)
-        else {
-            return nil
+        let entryCount = Int(chap.dataSize) / 4
+        guard let data = try? reader.read(at: chap.dataOffset, count: entryCount * 4) else {
+            return []
         }
-        return readUInt32(from: data, at: 0)
+        var ids: [UInt32] = []
+        for index in 0..<entryCount {
+            ids.append(readUInt32(from: data, at: index * 4))
+        }
+        return ids
     }
 
     /// Checks if a handler atom has the specified handler type.
@@ -238,12 +285,12 @@ extension MP4MoovBuilder {
         return readUInt32(from: data, at: trackIDOffset) == trackID
     }
 
-    /// Finds all track IDs that should be removed as old chapter text tracks.
+    /// Finds all track IDs that should be removed as old chapter tracks.
     ///
     /// Uses two strategies:
-    /// 1. **Primary**: reads `tref/chap` from the audio track to find the referenced track ID.
-    /// 2. **Fallback**: scans for tracks with `text` or `sbtl` handler types, which are
-    ///    chapter text tracks not explicitly referenced by `tref/chap`.
+    /// 1. **Primary**: reads all IDs from `tref/chap` on the audio track (text + video tracks).
+    /// 2. **Fallback**: scans for tracks with `text`, `sbtl`, or `vide` handler types
+    ///    that are chapter-related tracks not explicitly referenced by `tref/chap`.
     private func findOldChapterTrackIDs(
         in moov: MP4Atom,
         audioTrack: MP4Atom?,
@@ -251,11 +298,11 @@ extension MP4MoovBuilder {
     ) -> Set<UInt32> {
         var trackIDs = Set<UInt32>()
 
-        // Primary: via tref/chap reference.
-        if let audio = audioTrack,
-            let chapTrackID = findChapterTrackID(audioTrack: audio, reader: reader)
-        {
-            trackIDs.insert(chapTrackID)
+        // Primary: via tref/chap reference (reads ALL referenced track IDs).
+        if let audio = audioTrack {
+            for id in findAllChapterTrackIDs(audioTrack: audio, reader: reader) {
+                trackIDs.insert(id)
+            }
         }
 
         // Fallback: text/subtitle handler tracks.
@@ -327,6 +374,16 @@ extension MP4MoovBuilder {
 
 extension MP4MoovBuilder {
 
+    /// Data produced by appending a chapter text track to the moov children.
+    private struct ChapterTrackData {
+        /// Encoded text samples for the chapter track.
+        let sampleData: Data
+        /// Per-sample byte sizes (one entry per chapter).
+        let sampleSizes: [UInt32]
+        /// Byte positions of stco entries relative to moov start.
+        let stcoOffsets: [Int]
+    }
+
     /// Copies existing moov children, skipping udta and old chapter text tracks.
     private func collectExistingChildren(
         from moov: MP4Atom,
@@ -354,14 +411,14 @@ extension MP4MoovBuilder {
         in children: inout [Data],
         audioTrack: MP4Atom?,
         hasChapters: Bool,
-        maxTrackID: UInt32,
+        chapTrackIDs: [UInt32],
         reader: FileReader
     ) throws {
         guard let audioTrakAtom = audioTrack else { return }
 
         let rebuiltAudioTrak: Data
-        if hasChapters {
-            let trefData = textTrackBuilder.buildTrefChap(chapterTrackID: maxTrackID + 1)
+        if hasChapters, !chapTrackIDs.isEmpty {
+            let trefData = textTrackBuilder.buildTrefChap(chapterTrackIDs: chapTrackIDs)
             rebuiltAudioTrak = try rebuildTrakWithTref(
                 trak: audioTrakAtom, reader: reader, trefData: trefData)
         } else {
@@ -384,6 +441,23 @@ extension MP4MoovBuilder {
         }
     }
 
+    /// Appends video track and returns its sample data/offsets, or empty defaults.
+    private func appendVideoTrack(
+        videoResult: MP4VideoTrackBuilder.VideoTrackResult?,
+        to children: inout [Data]
+    ) -> ChapterTrackData {
+        guard let video = videoResult else {
+            return ChapterTrackData(sampleData: Data(), sampleSizes: [], stcoOffsets: [])
+        }
+        let videoTrakOffset = 8 + totalSize(of: children)
+        let stcoOffsets = video.stcoEntryOffsets.map { $0 + videoTrakOffset }
+        children.append(video.trak)
+        return ChapterTrackData(
+            sampleData: video.sampleData,
+            sampleSizes: video.sampleSizes,
+            stcoOffsets: stcoOffsets)
+    }
+
     /// Builds a chapter text track and appends it to children.
     private func appendChapterTrack(
         to children: inout [Data],
@@ -391,7 +465,7 @@ extension MP4MoovBuilder {
         trackID: UInt32,
         movieTimescale: UInt32,
         movieDuration: UInt64
-    ) -> (sampleData: Data, stcoOffsets: [Int]) {
+    ) -> ChapterTrackData {
         let result = textTrackBuilder.buildChapterTrack(
             chapters: chapters, trackID: trackID,
             movieTimescale: movieTimescale, movieDuration: movieDuration)
@@ -399,7 +473,10 @@ extension MP4MoovBuilder {
         let trakOffsetInMoov = 8 + totalSize(of: children)  // 8 = moov header
         let stcoOffsets = result.stcoEntryOffsets.map { $0 + trakOffsetInMoov }
         children.append(result.trak)
-        return (sampleData: result.sampleData, stcoOffsets: stcoOffsets)
+        return ChapterTrackData(
+            sampleData: result.sampleData,
+            sampleSizes: result.sampleSizes,
+            stcoOffsets: stcoOffsets)
     }
 }
 
@@ -464,31 +541,17 @@ extension MP4MoovBuilder {
                 continue
             }
 
-            let entryCount = readUInt32(from: data, at: entryCountOffset)
-            adjustSTCOEntries(
-                in: &data,
-                entriesStart: entryCountOffset + 4,
-                count: Int(entryCount),
-                delta: delta
-            )
+            let entryCount = Int(readUInt32(from: data, at: entryCountOffset))
+            let entriesStart = entryCountOffset + 4
+            for index in 0..<entryCount {
+                let entryOffset = entriesStart + index * 4
+                guard entryOffset + 4 <= data.count else { break }
+                let original = Int64(readUInt32(from: data, at: entryOffset))
+                let adjusted = UInt32(clamping: max(0, original + delta))
+                writeUInt32(adjusted, to: &data, at: entryOffset)
+            }
 
             position = sizeOffset + Int(atomSize)
-        }
-    }
-
-    /// Adjusts individual stco offset entries.
-    private func adjustSTCOEntries(
-        in data: inout Data,
-        entriesStart: Int,
-        count: Int,
-        delta: Int64
-    ) {
-        for index in 0..<count {
-            let offset = entriesStart + index * 4
-            guard offset + 4 <= data.count else { break }
-            let original = Int64(readUInt32(from: data, at: offset))
-            let adjusted = UInt32(clamping: max(0, original + delta))
-            writeUInt32(adjusted, to: &data, at: offset)
         }
     }
 
@@ -517,31 +580,17 @@ extension MP4MoovBuilder {
                 continue
             }
 
-            let entryCount = readUInt32(from: data, at: entryCountOffset)
-            adjustCO64Entries(
-                in: &data,
-                entriesStart: entryCountOffset + 4,
-                count: Int(entryCount),
-                delta: delta
-            )
+            let entryCount = Int(readUInt32(from: data, at: entryCountOffset))
+            let entriesStart = entryCountOffset + 4
+            for index in 0..<entryCount {
+                let entryOffset = entriesStart + index * 8
+                guard entryOffset + 8 <= data.count else { break }
+                let original = Int64(bitPattern: readUInt64(from: data, at: entryOffset))
+                let adjusted = UInt64(clamping: max(0, original + delta))
+                writeUInt64(adjusted, to: &data, at: entryOffset)
+            }
 
             position = sizeOffset + Int(atomSize)
-        }
-    }
-
-    /// Adjusts individual co64 offset entries.
-    private func adjustCO64Entries(
-        in data: inout Data,
-        entriesStart: Int,
-        count: Int,
-        delta: Int64
-    ) {
-        for index in 0..<count {
-            let offset = entriesStart + index * 8
-            guard offset + 8 <= data.count else { break }
-            let original = Int64(bitPattern: readUInt64(from: data, at: offset))
-            let adjusted = UInt64(clamping: max(0, original + delta))
-            writeUInt64(adjusted, to: &data, at: offset)
         }
     }
 }

@@ -4,10 +4,8 @@ import Foundation
 ///
 /// QuickTime Player and Apple Podcasts only read chapters from a text track
 /// referenced by the audio track's `tref/chap`. This builder creates the
-/// complete text track hierarchy and sample data.
-///
-/// - Note: v0.2.0 — Chapter URLs (requires custom atom or href extension).
-/// - Note: v0.2.0 — Per-chapter artwork (requires video track with image samples).
+/// complete text track hierarchy and sample data. Chapter URLs are embedded
+/// as `href` atoms within tx3g text samples.
 public struct MP4TextTrackBuilder: Sendable {
 
     private let atomBuilder = MP4AtomBuilder()
@@ -23,6 +21,8 @@ public struct MP4TextTrackBuilder: Sendable {
         public let trak: Data
         /// Chapter text samples (not wrapped in mdat).
         public let sampleData: Data
+        /// Per-sample sizes in bytes (matches chapter count).
+        public let sampleSizes: [UInt32]
         /// Byte positions of stco entry values within the trak data.
         /// Each position is the offset of a 4-byte big-endian UInt32 within `trak`.
         public let stcoEntryOffsets: [Int]
@@ -46,14 +46,29 @@ public struct MP4TextTrackBuilder: Sendable {
         movieTimescale: UInt32,
         movieDuration: UInt64
     ) -> TextTrackResult {
-        // Build text samples: UInt16(BE text_length) + UTF-8 text bytes.
+        // Build text samples: UInt16(BE text_length) + UTF-8 text bytes + optional href atom.
         var sampleData = Data()
         var sampleSizes: [UInt32] = []
         for chapter in chapters {
             let textBytes = Data(chapter.title.utf8)
-            var sampleWriter = BinaryWriter(capacity: 2 + textBytes.count)
+            var sampleWriter = BinaryWriter(capacity: 2 + textBytes.count + 32)
             sampleWriter.writeUInt16(UInt16(textBytes.count))
             sampleWriter.writeData(textBytes)
+
+            // Append href atom if chapter has a URL.
+            if let url = chapter.url {
+                let urlBytes = Data(url.absoluteString.utf8)
+                // href atom: size(4) + "href"(4) + flags(2) + textCharCount(2) + urlLen(1) + url(N) + terminator(2)
+                let hrefPayloadSize = 2 + 2 + 1 + urlBytes.count + 2
+                sampleWriter.writeUInt32(UInt32(8 + hrefPayloadSize))
+                sampleWriter.writeLatin1String("href")
+                sampleWriter.writeUInt16(0x0005)
+                sampleWriter.writeUInt16(UInt16(chapter.title.count))
+                sampleWriter.writeUInt8(UInt8(min(urlBytes.count, 255)))
+                sampleWriter.writeData(urlBytes)
+                sampleWriter.writeUInt16(0x0000)
+            }
+
             sampleSizes.append(UInt32(sampleWriter.count))
             sampleData.append(sampleWriter.data)
         }
@@ -85,15 +100,18 @@ public struct MP4TextTrackBuilder: Sendable {
         let stcoEntryOffsets = findStcoEntryOffsets(in: trak, entryCount: chapters.count)
 
         return TextTrackResult(
-            trak: trak, sampleData: sampleData, stcoEntryOffsets: stcoEntryOffsets)
+            trak: trak, sampleData: sampleData,
+            sampleSizes: sampleSizes, stcoEntryOffsets: stcoEntryOffsets)
     }
 
-    /// Builds a `tref` atom containing a `chap` reference to the chapter track.
-    /// - Parameter chapterTrackID: The track ID of the chapter text track.
+    /// Builds a `tref` atom containing a `chap` reference to one or more chapter tracks.
+    /// - Parameter chapterTrackIDs: The track IDs of the chapter tracks (text, video, etc.).
     /// - Returns: Complete `tref` atom data.
-    public func buildTrefChap(chapterTrackID: UInt32) -> Data {
-        var chapPayload = BinaryWriter(capacity: 4)
-        chapPayload.writeUInt32(chapterTrackID)
+    public func buildTrefChap(chapterTrackIDs: [UInt32]) -> Data {
+        var chapPayload = BinaryWriter(capacity: chapterTrackIDs.count * 4)
+        for trackID in chapterTrackIDs {
+            chapPayload.writeUInt32(trackID)
+        }
         let chapAtom = atomBuilder.buildAtom(type: "chap", data: chapPayload.data)
         return atomBuilder.buildContainerAtom(type: "tref", children: [chapAtom])
     }
