@@ -56,7 +56,17 @@ extension Read {
             print("Chapters (\(info.chapters.count)):")
             for (index, chapter) in info.chapters.enumerated() {
                 let number = index + 1
-                print("  \(number). \(chapter.start.shortDescription) \u{2014} \(chapter.title)")
+                var line =
+                    "  \(number). \(chapter.start.shortDescription) \u{2014} \(chapter.title)"
+                if let artwork = chapter.artwork {
+                    let sizeKB = Double(artwork.data.count) / 1024.0
+                    line +=
+                        " [artwork: \(artwork.format.rawValue.uppercased()) \(String(format: "%.1f", sizeKB)) KB]"
+                }
+                if let url = chapter.url {
+                    line += " (\(url.absoluteString))"
+                }
+                print(line)
             }
         }
 
@@ -124,6 +134,13 @@ extension Read {
                     "title": chapter.title
                 ]
                 if let url = chapter.url { chap["url"] = url.absoluteString }
+                if let artwork = chapter.artwork {
+                    chap["artwork"] =
+                        [
+                            "format": artwork.format.rawValue,
+                            "size": artwork.data.count
+                        ] as [String: Any]
+                }
                 return chap
             }
         }

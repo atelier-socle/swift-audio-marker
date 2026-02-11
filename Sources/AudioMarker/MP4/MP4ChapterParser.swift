@@ -5,6 +5,8 @@ import Foundation
 /// Supports two chapter formats:
 /// - **Nero chapters** (`chpl` atom under `moov.udta`): timestamps in 100-nanosecond units.
 /// - **QuickTime chapter track**: text track referenced by `chap` track reference (best-effort).
+///
+/// - Note: v0.2.0 — Parse chapter URLs and per-chapter artwork from M4A.
 public struct MP4ChapterParser: Sendable {
 
     /// Creates an MP4 chapter parser.

@@ -511,6 +511,58 @@ extension ID3WriterTests {
         #expect(frameData[pictureTypeOffset] == 0x03)
     }
 
+    @Test("Round-trip chapter URL and artwork")
+    func roundTripChapterURLAndArtwork() throws {
+        let url = try createTempFile(tagData: Data())
+        defer { cleanup(url) }
+
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: UInt8(0xAB), count: 50))
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "With URL and Art",
+                end: .milliseconds(30_000),
+                url: URL(string: "https://example.com/ch1"),
+                artwork: Artwork(data: imageData, format: .jpeg)),
+            Chapter(
+                start: .milliseconds(30_000), title: "URL Only",
+                end: .milliseconds(60_000),
+                url: URL(string: "https://example.com/ch2"))
+        ])
+
+        let writer = ID3Writer()
+        try writer.write(info, to: url)
+
+        let reader = ID3Reader()
+        let result = try reader.read(from: url)
+        #expect(result.chapters.count == 2)
+        #expect(result.chapters[0].url?.absoluteString == "https://example.com/ch1")
+        #expect(result.chapters[0].artwork != nil)
+        #expect(result.chapters[0].artwork?.format == .jpeg)
+        #expect(result.chapters[1].url?.absoluteString == "https://example.com/ch2")
+        #expect(result.chapters[1].artwork == nil)
+    }
+
+    @Test("Round-trip chapter with WXXX URL subframe")
+    func roundTripChapterWXXXUrl() throws {
+        // Build a CHAP frame with a WXXX subframe (instead of WOAR)
+        let wxxxSubframe = ID3TestHelper.buildWXXXFrame(
+            description: "chapter url", url: "https://example.com/wxxx")
+        let titleSubframe = ID3TestHelper.buildTextFrame(id: "TIT2", text: "WXXX Chapter")
+        let chapFrame = ID3TestHelper.buildCHAPFrame(
+            elementID: "chp0", startTime: 0, endTime: 30_000,
+            subframes: [titleSubframe, wxxxSubframe])
+        let tag = ID3TestHelper.buildTag(version: .v2_3, frames: [chapFrame])
+        let url = try createTempFile(tagData: tag)
+        defer { cleanup(url) }
+
+        let reader = ID3Reader()
+        let result = try reader.read(from: url)
+        #expect(result.chapters.count == 1)
+        #expect(result.chapters[0].title == "WXXX Chapter")
+        #expect(result.chapters[0].url?.absoluteString == "https://example.com/wxxx")
+    }
+
     @Test("Read APIC preserves custom picture type through round-trip")
     func readAPICPreservesPictureType() throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: UInt8(0xCC), count: 20))

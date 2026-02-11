@@ -260,7 +260,9 @@ extension ID3Reader {
             switch subframe {
             case .text(let id, let text) where id == ID3FrameID.title.rawValue:
                 title = text
-            case .url(let id, let urlString) where id == ID3FrameID.artistURL.rawValue:
+            case .url(_, let urlString):
+                url = URL(string: urlString)
+            case .userDefinedURL(_, let urlString):
                 url = URL(string: urlString)
             case .attachedPicture(_, _, _, let data):
                 artwork = try? Artwork(data: data)

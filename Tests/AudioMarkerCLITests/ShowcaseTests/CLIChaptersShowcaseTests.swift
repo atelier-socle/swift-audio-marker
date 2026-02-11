@@ -24,6 +24,33 @@ struct CLIChaptersShowcaseTests {
         #expect(chapters.count == 2)
     }
 
+    @Test("audiomarker chapters list — shows URL and artwork")
+    func chaptersListShowsURLAndArtwork() throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: UInt8(0x00), count: 32))
+        let frames: [Data] = [
+            ID3TestHelper.buildTextFrame(id: "TIT2", text: "URL Art Test"),
+            ID3TestHelper.buildCHAPFrame(
+                elementID: "ch1", startTime: 0, endTime: 60_000,
+                subframes: [
+                    ID3TestHelper.buildTextFrame(id: "TIT2", text: "Intro"),
+                    ID3TestHelper.buildURLFrame(id: "WOAR", url: "https://example.com/ch1"),
+                    ID3TestHelper.buildAPICFrame(imageData: imageData)
+                ])
+        ]
+        let tag = ID3TestHelper.buildTag(version: .v2_3, frames: frames)
+        let url = try ID3TestHelper.createTempFile(tagData: tag)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var cmd = try Chapters.List.parse([url.path])
+        try cmd.run()
+
+        let chapters = try engine.readChapters(from: url)
+        #expect(chapters.count == 1)
+        #expect(chapters[0].url?.absoluteString == "https://example.com/ch1")
+        #expect(chapters[0].artwork != nil)
+        #expect(chapters[0].artwork?.format == .jpeg)
+    }
+
     // MARK: - Add
 
     @Test("audiomarker chapters add — add a chapter")

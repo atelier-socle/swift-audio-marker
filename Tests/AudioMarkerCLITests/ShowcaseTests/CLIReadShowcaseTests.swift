@@ -48,6 +48,31 @@ struct CLIReadShowcaseTests {
         try cmd.run()
     }
 
+    // MARK: - Chapter URL & Artwork
+
+    @Test("audiomarker read — shows chapter URL")
+    func readShowsChapterURL() throws {
+        let frames: [Data] = [
+            ID3TestHelper.buildTextFrame(id: "TIT2", text: "URL Test"),
+            ID3TestHelper.buildCHAPFrame(
+                elementID: "ch1", startTime: 0, endTime: 60_000,
+                subframes: [
+                    ID3TestHelper.buildTextFrame(id: "TIT2", text: "Intro"),
+                    ID3TestHelper.buildURLFrame(id: "WOAR", url: "https://example.com/ch1")
+                ])
+        ]
+        let tag = ID3TestHelper.buildTag(version: .v2_3, frames: frames)
+        let url = try ID3TestHelper.createTempFile(tagData: tag)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var cmd = try Read.parse([url.path])
+        try cmd.run()
+
+        let info = try AudioMarkerEngine().read(from: url)
+        #expect(info.chapters.count == 1)
+        #expect(info.chapters[0].url?.absoluteString == "https://example.com/ch1")
+    }
+
     // MARK: - Lyrics Display
 
     @Test("audiomarker read — shows lyrics when present")

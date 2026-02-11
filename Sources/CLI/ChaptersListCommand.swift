@@ -26,7 +26,17 @@ extension Chapters {
             print("Chapters (\(chapters.count)) in \(url.lastPathComponent):")
             for (index, chapter) in chapters.enumerated() {
                 let number = index + 1
-                print("  \(number). \(chapter.start.shortDescription) \u{2014} \(chapter.title)")
+                var line =
+                    "  \(number). \(chapter.start.shortDescription) \u{2014} \(chapter.title)"
+                if let artwork = chapter.artwork {
+                    let sizeKB = Double(artwork.data.count) / 1024.0
+                    line +=
+                        " [artwork: \(artwork.format.rawValue.uppercased()) \(String(format: "%.1f", sizeKB)) KB]"
+                }
+                if let url = chapter.url {
+                    line += " (\(url.absoluteString))"
+                }
+                print(line)
             }
         }
     }

@@ -5,6 +5,9 @@ import Foundation
 /// QuickTime Player and Apple Podcasts only read chapters from a text track
 /// referenced by the audio track's `tref/chap`. This builder creates the
 /// complete text track hierarchy and sample data.
+///
+/// - Note: v0.2.0 — Chapter URLs (requires custom atom or href extension).
+/// - Note: v0.2.0 — Per-chapter artwork (requires video track with image samples).
 public struct MP4TextTrackBuilder: Sendable {
 
     private let atomBuilder = MP4AtomBuilder()
