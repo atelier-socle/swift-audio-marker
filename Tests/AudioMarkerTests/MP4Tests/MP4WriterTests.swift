@@ -138,6 +138,89 @@ struct MP4WriterTests {
         #expect(readMdat == mdatContent)
     }
 
+    // MARK: - QuickTime Text Track
+
+    @Test("Write chapters creates QuickTime text track")
+    func writeChaptersCreatesTextTrack() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "Intro"),
+            Chapter(start: .seconds(30.0), title: "Main"),
+            Chapter(start: .seconds(60.0), title: "Outro")
+        ])
+
+        try writer.write(info, to: url)
+
+        // Verify chapters read back correctly.
+        let readBack = try reader.read(from: url)
+        #expect(readBack.chapters.count == 3)
+        #expect(readBack.chapters[0].title == "Intro")
+        #expect(readBack.chapters[1].title == "Main")
+        #expect(readBack.chapters[2].title == "Outro")
+
+        // Verify a text track exists in the moov.
+        let hasTrack = try hasTextTrackInMoov(at: url)
+        #expect(hasTrack)
+    }
+
+    @Test("Write new chapters replaces existing text track")
+    func writeChaptersUpdatesExistingTextTrack() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Write initial chapters.
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "Old Chapter 1"),
+            Chapter(start: .seconds(30.0), title: "Old Chapter 2")
+        ])
+        try writer.write(info, to: url)
+
+        // Write new chapters.
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "New Chapter 1"),
+            Chapter(start: .seconds(20.0), title: "New Chapter 2"),
+            Chapter(start: .seconds(40.0), title: "New Chapter 3")
+        ])
+        try writer.write(info, to: url)
+
+        // Verify new chapters are read back.
+        let readBack = try reader.read(from: url)
+        #expect(readBack.chapters.count == 3)
+        #expect(readBack.chapters[0].title == "New Chapter 1")
+        #expect(readBack.chapters[1].title == "New Chapter 2")
+        #expect(readBack.chapters[2].title == "New Chapter 3")
+
+        // Verify only one text track exists (old one was replaced).
+        let textTrackCount = try countTextTracksInMoov(at: url)
+        #expect(textTrackCount == 1)
+    }
+
+    @Test("Write chapters on mdat-first layout creates text track")
+    func writeChaptersMdatFirst() throws {
+        let url = try createTestMP4MdatFirst()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "First"),
+            Chapter(start: .seconds(30.0), title: "Second")
+        ])
+
+        try writer.write(info, to: url)
+        let readBack = try reader.read(from: url)
+
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].title == "First")
+        #expect(readBack.chapters[1].title == "Second")
+
+        let hasTrack = try hasTextTrackInMoov(at: url)
+        #expect(hasTrack)
+    }
+
     // MARK: - Round-Trip
 
     @Test("Full round-trip: read, modify, write, read, compare")
@@ -280,5 +363,90 @@ struct MP4WriterTests {
         #expect(throws: MP4Error.self) {
             _ = try writer.write(AudioFileInfo(), to: url)
         }
+    }
+}
+
+// MARK: - Text Track Replacement & stsd
+
+extension MP4WriterTests {
+
+    @Test("Write chapters replaces existing sbtl text track")
+    func writeChaptersReplacesSubtitleTrack() throws {
+        let url = try createTestMP4WithSbtlTrack()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Verify the sbtl track exists before writing.
+        let beforeCount = try countTextOrSbtlTracksInMoov(at: url)
+        #expect(beforeCount == 1)
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "New Ch1"),
+            Chapter(start: .seconds(30.0), title: "New Ch2")
+        ])
+
+        try writer.write(info, to: url)
+
+        // Verify only one text track exists (sbtl removed, text added).
+        let afterCount = try countTextOrSbtlTracksInMoov(at: url)
+        #expect(afterCount == 1)
+
+        // Verify chapters read back correctly.
+        let readBack = try reader.read(from: url)
+        #expect(readBack.chapters.count == 2)
+        #expect(readBack.chapters[0].title == "New Ch1")
+        #expect(readBack.chapters[1].title == "New Ch2")
+    }
+
+    @Test("Text track stsd has correct size (no overread)")
+    func textTrackStsdCorrectSize() throws {
+        let url = try createTestMP4WithMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "Ch1")
+        ])
+
+        try writer.write(info, to: url)
+
+        // Parse the file and find the text track's stsd.
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        let moov = try #require(atoms.first { $0.type == "moov" })
+
+        // Find the text track.
+        var textTrack: MP4Atom?
+        for trak in moov.children(ofType: "trak") {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                let data = try? fileReader.read(at: hdlr.dataOffset, count: 12),
+                String(data: data[8..<12], encoding: .isoLatin1) == "text"
+            {
+                textTrack = trak
+                break
+            }
+        }
+        let track = try #require(textTrack)
+
+        // Read the stsd atom.
+        let stsd = try #require(track.find(path: "mdia.minf.stbl.stsd"))
+        let stsdData = try fileReader.read(
+            at: stsd.dataOffset, count: Int(stsd.dataSize))
+
+        // After version+flags(4) + entry_count(4), the text description starts.
+        // The first 4 bytes of the description are its declared size.
+        let descSize =
+            UInt32(stsdData[8]) << 24
+            | UInt32(stsdData[9]) << 16
+            | UInt32(stsdData[10]) << 8
+            | UInt32(stsdData[11])
+
+        // Declared size should equal actual remaining bytes from description start.
+        let actualDescBytes = stsdData.count - 8
+        #expect(descSize == UInt32(actualDescBytes))
+        #expect(descSize == 59)
     }
 }

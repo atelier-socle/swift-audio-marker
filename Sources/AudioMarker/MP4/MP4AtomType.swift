@@ -62,6 +62,9 @@ public enum MP4AtomType: String, Sendable, Hashable, CaseIterable {
     /// Sample-to-chunk mapping.
     case stsc
 
+    /// Track reference container (e.g., contains `chap` for chapter references).
+    case tref
+
     // MARK: - User Data & Metadata
 
     /// User data container.
@@ -86,7 +89,7 @@ public enum MP4AtomType: String, Sendable, Hashable, CaseIterable {
     /// Whether this atom type is a known container that has child atoms.
     public var isContainer: Bool {
         switch self {
-        case .moov, .trak, .mdia, .minf, .stbl, .udta, .ilst:
+        case .moov, .trak, .tref, .mdia, .minf, .stbl, .udta, .ilst:
             return true
         default:
             return false

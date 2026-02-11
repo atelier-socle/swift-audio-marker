@@ -299,6 +299,142 @@ extension MP4WriterTests {
         return try MP4TestHelper.createTempFile(data: file)
     }
 
+    /// Checks if the moov atom contains at least one text track.
+    func hasTextTrackInMoov(at url: URL) throws -> Bool {
+        try countTextTracksInMoov(at: url) > 0
+    }
+
+    /// Counts the number of text tracks (handler "text") in the moov atom.
+    func countTextTracksInMoov(at url: URL) throws -> Int {
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        guard let moov = atoms.first(where: { $0.type == "moov" }) else {
+            return 0
+        }
+
+        var count = 0
+        for trak in moov.children(ofType: "trak") {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                let data = try? fileReader.read(at: hdlr.dataOffset, count: 12),
+                String(data: data[8..<12], encoding: .isoLatin1) == "text"
+            {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// Counts text or subtitle tracks (handler "text" or "sbtl") in the moov atom.
+    func countTextOrSbtlTracksInMoov(at url: URL) throws -> Int {
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        guard let moov = atoms.first(where: { $0.type == "moov" }) else {
+            return 0
+        }
+
+        var count = 0
+        for trak in moov.children(ofType: "trak") {
+            if let hdlr = trak.find(path: "mdia.hdlr"),
+                let data = try? fileReader.read(at: hdlr.dataOffset, count: 12)
+            {
+                let handler = String(data: data[8..<12], encoding: .isoLatin1)
+                if handler == "text" || handler == "sbtl" {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
+    /// Creates a test MP4 with an sbtl (subtitle) text track and no tref/chap reference.
+    func createTestMP4WithSbtlTrack() throws -> URL {
+        let ftyp = MP4TestHelper.buildFtyp()
+        let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
+        let mdatContent = Data(repeating: 0xFF, count: 64)
+
+        // Build audio track.
+        let stco = MP4TestHelper.buildStcoAtom(offsets: [0])
+        let stsz = MP4TestHelper.buildStszAtom(
+            defaultSize: UInt32(mdatContent.count), sizes: [])
+        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
+        let stsc = MP4TestHelper.buildStscAtom()
+        let stbl = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, stco, stsz, stsc])
+        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
+        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
+        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
+        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
+
+        // Audio trak with tkhd (track ID 1).
+        let audioTkhd = buildTkhd(trackID: 1)
+        let audioTrak = MP4TestHelper.buildContainerAtom(
+            type: "trak", children: [audioTkhd, mdia])
+
+        // Build sbtl text track (track ID 2, no tref/chap reference).
+        let sbtlHdlr = MP4TestHelper.buildHdlrAtom(handlerType: "sbtl")
+        let sbtlMdhd = MP4TestHelper.buildMdhdAtom(timescale: 1000)
+        let sbtlStts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 10_000)])
+        let sbtlStco = MP4TestHelper.buildStcoAtom(offsets: [0])
+        let sbtlStsz = MP4TestHelper.buildStszAtom(defaultSize: 10, sizes: [])
+        let sbtlStsc = MP4TestHelper.buildStscAtom()
+        let sbtlStbl = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [sbtlStts, sbtlStco, sbtlStsz, sbtlStsc])
+        let sbtlMinf = MP4TestHelper.buildContainerAtom(type: "minf", children: [sbtlStbl])
+        let sbtlMdia = MP4TestHelper.buildContainerAtom(
+            type: "mdia", children: [sbtlMdhd, sbtlHdlr, sbtlMinf])
+        let sbtlTkhd = buildTkhd(trackID: 2)
+        let sbtlTrak = MP4TestHelper.buildContainerAtom(
+            type: "trak", children: [sbtlTkhd, sbtlMdia])
+
+        let moov = MP4TestHelper.buildContainerAtom(
+            type: "moov", children: [mvhd, audioTrak, sbtlTrak])
+
+        var mdatWriter = BinaryWriter()
+        mdatWriter.writeUInt32(UInt32(8 + mdatContent.count))
+        mdatWriter.writeLatin1String("mdat")
+        mdatWriter.writeData(mdatContent)
+
+        // Rebuild with correct stco offset.
+        let mdatDataOffset = UInt32(ftyp.count + moov.count + 8)
+        let stcoFixed = MP4TestHelper.buildStcoAtom(offsets: [mdatDataOffset])
+        let stblFixed = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, stcoFixed, stsz, stsc])
+        let minfFixed = MP4TestHelper.buildContainerAtom(type: "minf", children: [stblFixed])
+        let mdiaFixed = MP4TestHelper.buildContainerAtom(
+            type: "mdia", children: [mdhd, hdlr, minfFixed])
+        let audioTrakFixed = MP4TestHelper.buildContainerAtom(
+            type: "trak", children: [audioTkhd, mdiaFixed])
+        let moovFixed = MP4TestHelper.buildContainerAtom(
+            type: "moov", children: [mvhd, audioTrakFixed, sbtlTrak])
+
+        var file = Data()
+        file.append(ftyp)
+        file.append(moovFixed)
+        file.append(mdatWriter.data)
+
+        return try MP4TestHelper.createTempFile(data: file)
+    }
+
+    /// Builds a minimal tkhd atom (version 0) with the given track ID.
+    private func buildTkhd(trackID: UInt32) -> Data {
+        var payload = BinaryWriter(capacity: 84)
+        payload.writeUInt8(0)  // version
+        payload.writeRepeating(0x00, count: 3)  // flags
+        payload.writeUInt32(0)  // creation time
+        payload.writeUInt32(0)  // modification time
+        payload.writeUInt32(trackID)
+        payload.writeUInt32(0)  // reserved
+        payload.writeUInt32(441_000)  // duration
+        payload.writeRepeating(0x00, count: 60)  // remaining fields
+        return MP4TestHelper.buildAtom(type: "tkhd", data: payload.data)
+    }
+
     /// Finds the first stco offset value inside a moov atom.
     func findStcoFirstOffset(in moov: MP4Atom, reader: FileReader) throws -> UInt64 {
         let moovData = try reader.read(at: moov.offset, count: Int(moov.size))

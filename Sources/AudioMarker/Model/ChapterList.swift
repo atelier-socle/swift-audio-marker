@@ -42,6 +42,16 @@ public struct ChapterList: Sendable, Hashable {
         chapters.sort { $0.start < $1.start }
     }
 
+    /// Clears all chapter end times so the writer recalculates them.
+    ///
+    /// Call this after modifying the chapter list (add, remove, re-order)
+    /// to avoid stale end times that would cause overlap validation failures.
+    public mutating func clearEndTimes() {
+        for index in chapters.indices {
+            chapters[index].end = nil
+        }
+    }
+
     /// Returns a new list with calculated end times based on next chapter starts and total duration.
     ///
     /// Each chapter's end time is set to the next chapter's start time.

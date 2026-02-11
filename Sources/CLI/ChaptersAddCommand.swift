@@ -22,6 +22,12 @@ extension Chapters {
         @Option(name: .long, help: "Chapter URL.")
         var url: String?
 
+        @Option(
+            name: .long,
+            help: "Path to artwork image (JPEG or PNG) for this chapter. Note: per-chapter artwork is only supported in MP3 (ID3) files."
+        )
+        var artwork: String?
+
         mutating func run() throws {
             let fileURL = CLIHelpers.resolveURL(file)
             let engine = AudioMarkerEngine()
@@ -35,10 +41,18 @@ extension Chapters {
 
             let timestamp = try AudioTimestamp(string: start)
             let chapterURL = url.flatMap { URL(string: $0) }
-            let chapter = Chapter(start: timestamp, title: title, url: chapterURL)
+            let chapterArtwork: Artwork?
+            if let artworkPath = artwork {
+                chapterArtwork = try Artwork(contentsOf: CLIHelpers.resolveURL(artworkPath))
+            } else {
+                chapterArtwork = nil
+            }
+            let chapter = Chapter(
+                start: timestamp, title: title, url: chapterURL, artwork: chapterArtwork)
 
             info.chapters.append(chapter)
             info.chapters.sort()
+            info.chapters.clearEndTimes()
 
             try engine.modify(info, in: fileURL)
             print("Added chapter \"\(title)\" at \(timestamp.shortDescription).")

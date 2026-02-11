@@ -34,6 +34,8 @@ public struct ChapterExporter: Sendable {
             throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
         case .ttml:
             throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
+        case .podcastNamespace:
+            try PodcastNamespaceParser.export(chapters)
         }
     }
 
@@ -62,6 +64,8 @@ public struct ChapterExporter: Sendable {
             throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
         case .ttml:
             throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
+        case .podcastNamespace:
+            try PodcastNamespaceParser.parse(string)
         }
     }
 }

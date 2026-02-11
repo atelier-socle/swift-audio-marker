@@ -156,7 +156,7 @@ extension MP4ChapterParser {
         return ChapterList(chapters)
     }
 
-    /// Finds the first `trak` with handler type `text`.
+    /// Finds the first `trak` with handler type `text` or `sbtl`.
     private func findTextTrack(in moov: MP4Atom, reader: FileReader) -> MP4Atom? {
         for trak in moov.children(ofType: MP4AtomType.trak.rawValue) {
             if let hdlr = trak.find(path: "mdia.hdlr"),
@@ -168,7 +168,7 @@ extension MP4ChapterParser {
         return nil
     }
 
-    /// Checks if a `hdlr` atom has handler type `text`.
+    /// Checks if a `hdlr` atom has handler type `text` or `sbtl`.
     private func isTextHandler(_ hdlr: MP4Atom, reader: FileReader) -> Bool {
         guard hdlr.dataSize >= 12 else { return false }
         guard let data = try? reader.read(at: hdlr.dataOffset, count: 12) else {
@@ -176,7 +176,7 @@ extension MP4ChapterParser {
         }
         // hdlr format: version(1) + flags(3) + pre_defined(4) + handler_type(4)
         let handlerType = String(data: data[8..<12], encoding: .isoLatin1)
-        return handlerType == "text"
+        return handlerType == "text" || handlerType == "sbtl"
     }
 
     /// Reads the timescale from the `mdhd` atom in a track.

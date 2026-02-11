@@ -240,7 +240,14 @@ extension ID3TagBuilder {
             }
 
             let startMs = UInt32(chapter.start.timeInterval * 1000)
-            let endMs = UInt32((chapter.end?.timeInterval ?? 0) * 1000)
+            let endMs: UInt32
+            if let end = chapter.end {
+                endMs = UInt32(end.timeInterval * 1000)
+            } else if index + 1 < chapters.count {
+                endMs = UInt32(chapters[index + 1].start.timeInterval * 1000)
+            } else {
+                endMs = startMs + 1
+            }
             frames.append(
                 .chapter(
                     elementID: elementID, startTime: startMs,

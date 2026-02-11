@@ -38,6 +38,7 @@ extension Chapters {
                     )
                 }
                 let removed = info.chapters.remove(at: zeroIndex)
+                info.chapters.clearEndTimes()
                 try engine.modify(info, in: fileURL)
                 print("Removed chapter \"\(removed.title)\".")
             } else if let title {
@@ -45,6 +46,7 @@ extension Chapters {
                     throw ValidationError("No chapter found with title \"\(title)\".")
                 }
                 info.chapters.remove(at: idx)
+                info.chapters.clearEndTimes()
                 try engine.modify(info, in: fileURL)
                 print("Removed chapter \"\(title)\".")
             }

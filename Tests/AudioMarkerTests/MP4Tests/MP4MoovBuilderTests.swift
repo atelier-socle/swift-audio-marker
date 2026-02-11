@@ -26,12 +26,12 @@ struct MP4MoovBuilderTests {
         var metadata = AudioMetadata()
         metadata.title = "New Title"
 
-        let newMoov = try moovBuilder.rebuildMoov(
+        let buildResult = try moovBuilder.rebuildMoov(
             from: moov, reader: reader,
             metadata: metadata, chapters: ChapterList())
 
         // Verify the new moov contains udta.
-        let moovURL = try MP4TestHelper.createTempFile(data: newMoov)
+        let moovURL = try MP4TestHelper.createTempFile(data: buildResult.moov)
         defer { try? FileManager.default.removeItem(at: moovURL) }
 
         let moovReader = try FileReader(url: moovURL)
@@ -57,11 +57,11 @@ struct MP4MoovBuilderTests {
         let atoms = try parser.parseAtoms(from: reader)
         let moov = try #require(atoms.first { $0.type == "moov" })
 
-        let newMoov = try moovBuilder.rebuildMoov(
+        let buildResult = try moovBuilder.rebuildMoov(
             from: moov, reader: reader,
             metadata: AudioMetadata(title: "New"), chapters: ChapterList())
 
-        let moovURL = try MP4TestHelper.createTempFile(data: newMoov)
+        let moovURL = try MP4TestHelper.createTempFile(data: buildResult.moov)
         defer { try? FileManager.default.removeItem(at: moovURL) }
 
         let moovReader = try FileReader(url: moovURL)
@@ -91,11 +91,11 @@ struct MP4MoovBuilderTests {
         var metadata = AudioMetadata()
         metadata.title = "Added"
 
-        let newMoov = try moovBuilder.rebuildMoov(
+        let buildResult = try moovBuilder.rebuildMoov(
             from: moov, reader: reader,
             metadata: metadata, chapters: ChapterList())
 
-        let moovURL = try MP4TestHelper.createTempFile(data: newMoov)
+        let moovURL = try MP4TestHelper.createTempFile(data: buildResult.moov)
         defer { try? FileManager.default.removeItem(at: moovURL) }
 
         let moovReader = try FileReader(url: moovURL)

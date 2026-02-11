@@ -113,7 +113,7 @@ struct CLIChaptersShowcaseTests {
         let before = try engine.readChapters(from: url)
         #expect(!before.isEmpty)
 
-        var cmd = try Chapters.Clear.parse([url.path])
+        var cmd = try Chapters.Clear.parse([url.path, "--force"])
         try cmd.run()
 
         let after = try engine.readChapters(from: url)

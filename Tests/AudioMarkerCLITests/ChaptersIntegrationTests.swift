@@ -152,7 +152,7 @@ struct ChaptersIntegrationTests {
         let url = try ID3TestHelper.createTempFile(tagData: tag)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        var cmd = try Chapters.Clear.parse([url.path])
+        var cmd = try Chapters.Clear.parse([url.path, "--force"])
         try cmd.run()
 
         let chapters = try AudioMarkerEngine().readChapters(from: url)
@@ -166,7 +166,7 @@ struct ChaptersIntegrationTests {
         defer { try? FileManager.default.removeItem(at: url) }
         try Data(repeating: 0xFF, count: 256).write(to: url)
 
-        var cmd = try Chapters.Clear.parse([url.path])
+        var cmd = try Chapters.Clear.parse([url.path, "--force"])
         try cmd.run()
     }
 

@@ -90,6 +90,32 @@ struct CommandParsingTests {
         #expect(cmd.url == "https://example.com")
     }
 
+    @Test("Chapters add parses artwork option")
+    func chaptersAddArtwork() throws {
+        let cmd = try Chapters.Add.parse([
+            "song.mp3",
+            "--start", "00:02:00",
+            "--title", "Solo",
+            "--artwork", "cover.jpg"
+        ])
+        #expect(cmd.artwork == "cover.jpg")
+    }
+
+    // MARK: - Chapters Clear
+
+    @Test("Chapters clear parses file and force flag")
+    func chaptersClearForce() throws {
+        let cmd = try Chapters.Clear.parse(["song.mp3", "--force"])
+        #expect(cmd.file == "song.mp3")
+        #expect(cmd.force)
+    }
+
+    @Test("Chapters clear defaults force to false")
+    func chaptersClearDefaultForce() throws {
+        let cmd = try Chapters.Clear.parse(["song.mp3"])
+        #expect(!cmd.force)
+    }
+
     // MARK: - Chapters Remove
 
     @Test("Chapters remove parses index")

@@ -72,6 +72,18 @@ struct CLIHelpersTests {
         #expect(format == .ttml)
     }
 
+    @Test("Parses podcast-ns format")
+    func parsePodcastNS() throws {
+        let format = try CLIHelpers.parseExportFormat("podcast-ns")
+        #expect(format == .podcastNamespace)
+    }
+
+    @Test("Parses podcast-namespace format")
+    func parsePodcastNamespace() throws {
+        let format = try CLIHelpers.parseExportFormat("podcast-namespace")
+        #expect(format == .podcastNamespace)
+    }
+
     @Test("Invalid format throws error")
     func parseInvalidFormat() {
         #expect(throws: Error.self) {

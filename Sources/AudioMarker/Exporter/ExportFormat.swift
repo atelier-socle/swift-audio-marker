@@ -16,6 +16,8 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     case lrc
     /// W3C Timed Text Markup Language (export only).
     case ttml
+    /// Podcasting 2.0 (podcast-namespace) JSON format.
+    case podcastNamespace
 
     /// The file extension for this format.
     public var fileExtension: String {
@@ -27,6 +29,7 @@ public enum ExportFormat: String, Sendable, CaseIterable {
         case .markdown: "md"
         case .lrc: "lrc"
         case .ttml: "ttml"
+        case .podcastNamespace: "json"
         }
     }
 
@@ -35,6 +38,7 @@ public enum ExportFormat: String, Sendable, CaseIterable {
         switch self {
         case .markdown, .ttml: false
         case .lrc: true
+        case .podcastNamespace: true
         default: true
         }
     }

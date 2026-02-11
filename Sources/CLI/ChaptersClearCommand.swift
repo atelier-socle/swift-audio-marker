@@ -13,8 +13,22 @@ extension Chapters {
         @Argument(help: "Path to the audio file.")
         var file: String
 
+        @Flag(name: .long, help: "Skip confirmation prompt.")
+        var force: Bool = false
+
         mutating func run() throws {
             let fileURL = CLIHelpers.resolveURL(file)
+
+            if !force {
+                print(
+                    "This will remove ALL chapters from \(fileURL.lastPathComponent). Continue? [y/N] ",
+                    terminator: "")
+                guard let answer = Swift.readLine(), answer.lowercased() == "y" else {
+                    print("Aborted.")
+                    return
+                }
+            }
+
             let engine = AudioMarkerEngine()
 
             var info: AudioFileInfo

@@ -18,6 +18,8 @@ public struct MP4Writer: Sendable {
     ///
     /// Rebuilds the `moov` atom with the provided metadata and chapters,
     /// adjusts chunk offsets, and writes the result to a new file.
+    /// Chapters are written in both Nero (`chpl`) and QuickTime text track
+    /// formats for maximum player compatibility.
     /// - Parameters:
     ///   - info: The audio file info to write.
     ///   - url: Source MP4 file URL.
@@ -32,22 +34,18 @@ public struct MP4Writer: Sendable {
         let layout = try analyzeLayout(atoms)
 
         let moovBuilder = MP4MoovBuilder()
-        let newMoov = try moovBuilder.rebuildMoov(
+        let buildResult = try moovBuilder.rebuildMoov(
             from: layout.moov, reader: reader,
             metadata: info.metadata, chapters: info.chapters)
 
-        let adjustedMoov: Data
-        if layout.moovBeforeMdat {
-            let originalSpan = Int64(layout.mdat.offset - layout.moov.offset)
-            let delta = Int64(newMoov.count) - originalSpan
-            adjustedMoov = try moovBuilder.adjustChunkOffsets(in: newMoov, delta: delta)
-        } else {
-            adjustedMoov = newMoov
-        }
+        let adjustedMoov = try adjustMoovForLayout(
+            moovBuilder: moovBuilder, buildResult: buildResult,
+            layout: layout, atoms: atoms, reader: reader)
 
-        try writeToTempFile(
+        let context = WriteContext(
             reader: reader, atoms: atoms, layout: layout,
-            newMoov: adjustedMoov, source: url)
+            newMoov: adjustedMoov, chapterSampleData: buildResult.chapterSampleData)
+        try writeToTempFile(context, source: url)
     }
 
     /// Strips metadata from an MP4 file while preserving chapters.
@@ -72,22 +70,100 @@ public struct MP4Writer: Sendable {
         let existingChapters = try chapterParser.parseChapters(from: atoms, reader: reader)
 
         let moovBuilder = MP4MoovBuilder()
-        let newMoov = try moovBuilder.rebuildMoov(
+        let buildResult = try moovBuilder.rebuildMoov(
             from: layout.moov, reader: reader,
             metadata: AudioMetadata(), chapters: existingChapters)
 
-        let adjustedMoov: Data
+        let adjustedMoov = try adjustMoovForLayout(
+            moovBuilder: moovBuilder, buildResult: buildResult,
+            layout: layout, atoms: atoms, reader: reader)
+
+        let context = WriteContext(
+            reader: reader, atoms: atoms, layout: layout,
+            newMoov: adjustedMoov, chapterSampleData: buildResult.chapterSampleData)
+        try writeToTempFile(context, source: url)
+    }
+}
+
+// MARK: - Moov Adjustment
+
+extension MP4Writer {
+
+    /// Adjusts moov chunk offsets for the new layout and patches text track stco.
+    private func adjustMoovForLayout(
+        moovBuilder: MP4MoovBuilder,
+        buildResult: MP4MoovBuilder.MoovBuildResult,
+        layout: FileLayout,
+        atoms: [MP4Atom],
+        reader: FileReader
+    ) throws -> Data {
+        var moovData = buildResult.moov
+        let hasChapterMdat = !buildResult.chapterSampleData.isEmpty
+
         if layout.moovBeforeMdat {
+            // moov-first: delta = (new moov size) - (original moov→mdat span)
             let originalSpan = Int64(layout.mdat.offset - layout.moov.offset)
-            let delta = Int64(newMoov.count) - originalSpan
-            adjustedMoov = try moovBuilder.adjustChunkOffsets(in: newMoov, delta: delta)
+            let delta = Int64(moovData.count) - originalSpan
+            moovData = try moovBuilder.adjustChunkOffsets(in: moovData, delta: delta)
+
+            // Patch text track stco: chapter mdat is placed after the original mdat.
+            if hasChapterMdat {
+                let originalMdatEnd = layout.mdat.offset + layout.mdat.size
+                let newMdatEnd = Int64(originalMdatEnd) + delta
+                let chapterMdatDataStart = UInt32(newMdatEnd + 8)  // after chapter mdat header
+                patchTextTrackStco(
+                    in: &moovData, builder: moovBuilder,
+                    buildResult: buildResult,
+                    chapterSampleData: buildResult.chapterSampleData,
+                    chapterMdatDataStart: chapterMdatDataStart)
+            }
         } else {
-            adjustedMoov = newMoov
+            // mdat-first: moov comes after mdat. Audio stco is already correct.
+            // But if chapter mdat is appended between original mdat and moov,
+            // we need no delta for audio stco (mdat position unchanged).
+            // Patch text track stco: chapter mdat is placed after original mdat.
+            if hasChapterMdat {
+                let originalMdatEnd = layout.mdat.offset + layout.mdat.size
+                let chapterMdatDataStart = UInt32(originalMdatEnd + 8)
+                patchTextTrackStco(
+                    in: &moovData, builder: moovBuilder,
+                    buildResult: buildResult,
+                    chapterSampleData: buildResult.chapterSampleData,
+                    chapterMdatDataStart: chapterMdatDataStart)
+            }
         }
 
-        try writeToTempFile(
-            reader: reader, atoms: atoms, layout: layout,
-            newMoov: adjustedMoov, source: url)
+        return moovData
+    }
+
+    /// Patches the text track stco entries with absolute offsets to chapter samples.
+    private func patchTextTrackStco(
+        in moovData: inout Data,
+        builder: MP4MoovBuilder,
+        buildResult: MP4MoovBuilder.MoovBuildResult,
+        chapterSampleData: Data,
+        chapterMdatDataStart: UInt32
+    ) {
+        // Calculate absolute offset for each sample in the chapter mdat.
+        var sampleOffsets: [UInt32] = []
+        var currentOffset = chapterMdatDataStart
+
+        // We need to know individual sample sizes from the sample data.
+        // Samples are: UInt16(textLength) + UTF-8 text bytes.
+        var position = 0
+        let data = chapterSampleData
+        while position + 2 <= data.count {
+            sampleOffsets.append(currentOffset)
+            let textLength = Int(UInt16(data[position]) << 8 | UInt16(data[position + 1]))
+            let sampleSize = UInt32(2 + textLength)
+            currentOffset += sampleSize
+            position += Int(sampleSize)
+        }
+
+        builder.patchStcoEntries(
+            in: &moovData,
+            offsets: sampleOffsets,
+            positions: buildResult.textTrackStcoOffsets)
     }
 }
 
@@ -125,14 +201,17 @@ extension MP4Writer {
 
 extension MP4Writer {
 
+    /// Bundles the data needed for writing the rebuilt file.
+    private struct WriteContext {
+        let reader: FileReader
+        let atoms: [MP4Atom]
+        let layout: FileLayout
+        let newMoov: Data
+        let chapterSampleData: Data
+    }
+
     /// Writes the rebuilt file to a temporary path and atomically replaces the original.
-    private func writeToTempFile(
-        reader: FileReader,
-        atoms: [MP4Atom],
-        layout: FileLayout,
-        newMoov: Data,
-        source url: URL
-    ) throws {
+    private func writeToTempFile(_ context: WriteContext, source url: URL) throws {
         let tempURL = url.deletingLastPathComponent()
             .appendingPathComponent("." + UUID().uuidString + ".tmp")
 
@@ -140,14 +219,10 @@ extension MP4Writer {
             let writer = try FileWriter(url: tempURL)
             defer { writer.close() }
 
-            if layout.moovBeforeMdat {
-                try writeMoovFirst(
-                    reader: reader, writer: writer, atoms: atoms,
-                    layout: layout, newMoov: newMoov)
+            if context.layout.moovBeforeMdat {
+                try writeMoovFirst(context, writer: writer)
             } else {
-                try writeMdatFirst(
-                    reader: reader, writer: writer, atoms: atoms,
-                    layout: layout, newMoov: newMoov)
+                try writeMdatFirst(context, writer: writer)
             }
 
             writer.synchronize()
@@ -159,66 +234,76 @@ extension MP4Writer {
         try atomicReplace(tempURL: tempURL, originalURL: url)
     }
 
-    /// Writes ftyp → moov → mdat layout.
-    private func writeMoovFirst(
-        reader: FileReader,
-        writer: FileWriter,
-        atoms: [MP4Atom],
-        layout: FileLayout,
-        newMoov: Data
-    ) throws {
+    /// Writes ftyp → moov → mdat → chapter mdat layout.
+    private func writeMoovFirst(_ context: WriteContext, writer: FileWriter) throws {
         // Write ftyp.
-        let ftypData = try reader.read(at: layout.ftyp.offset, count: Int(layout.ftyp.size))
+        let ftypData = try context.reader.read(
+            at: context.layout.ftyp.offset, count: Int(context.layout.ftyp.size))
         try writer.write(ftypData)
 
         // Write any atoms between ftyp and moov (free, skip, etc.).
         let excluded: Set<String> = [MP4AtomType.moov.rawValue, MP4AtomType.mdat.rawValue]
         for atom in atomsBetween(
-            from: layout.ftyp.offset + layout.ftyp.size,
-            to: layout.moov.offset, excluding: excluded, atoms: atoms)
+            from: context.layout.ftyp.offset + context.layout.ftyp.size,
+            to: context.layout.moov.offset, excluding: excluded, atoms: context.atoms)
         {
-            let atomData = try reader.read(at: atom.offset, count: Int(atom.size))
+            let atomData = try context.reader.read(at: atom.offset, count: Int(atom.size))
             try writer.write(atomData)
         }
 
         // Write new moov.
-        try writer.write(newMoov)
+        try writer.write(context.newMoov)
 
-        // Stream mdat and any remaining atoms.
+        // Stream original mdat and any remaining atoms.
         try streamFromOffset(
-            layout.mdat.offset,
-            toEnd: reader.fileSize,
-            reader: reader, writer: writer)
+            context.layout.mdat.offset,
+            toEnd: context.reader.fileSize,
+            reader: context.reader, writer: writer)
+
+        // Write chapter mdat (if any).
+        if !context.chapterSampleData.isEmpty {
+            try writeChapterMdat(context.chapterSampleData, writer: writer)
+        }
     }
 
-    /// Writes ftyp → mdat → moov layout.
-    private func writeMdatFirst(
-        reader: FileReader,
-        writer: FileWriter,
-        atoms: [MP4Atom],
-        layout: FileLayout,
-        newMoov: Data
-    ) throws {
+    /// Writes ftyp → mdat → chapter mdat → moov layout.
+    private func writeMdatFirst(_ context: WriteContext, writer: FileWriter) throws {
         // Write ftyp.
-        let ftypData = try reader.read(at: layout.ftyp.offset, count: Int(layout.ftyp.size))
+        let ftypData = try context.reader.read(
+            at: context.layout.ftyp.offset, count: Int(context.layout.ftyp.size))
         try writer.write(ftypData)
 
         // Write any atoms between ftyp and mdat.
         let excluded: Set<String> = [MP4AtomType.moov.rawValue, MP4AtomType.mdat.rawValue]
         for atom in atomsBetween(
-            from: layout.ftyp.offset + layout.ftyp.size,
-            to: layout.mdat.offset, excluding: excluded, atoms: atoms)
+            from: context.layout.ftyp.offset + context.layout.ftyp.size,
+            to: context.layout.mdat.offset, excluding: excluded, atoms: context.atoms)
         {
-            let atomData = try reader.read(at: atom.offset, count: Int(atom.size))
+            let atomData = try context.reader.read(at: atom.offset, count: Int(atom.size))
             try writer.write(atomData)
         }
 
-        // Stream mdat.
+        // Stream original mdat.
         try writer.copyChunked(
-            from: reader, offset: layout.mdat.offset, count: layout.mdat.size)
+            from: context.reader, offset: context.layout.mdat.offset,
+            count: context.layout.mdat.size)
+
+        // Write chapter mdat (if any).
+        if !context.chapterSampleData.isEmpty {
+            try writeChapterMdat(context.chapterSampleData, writer: writer)
+        }
 
         // Write new moov.
-        try writer.write(newMoov)
+        try writer.write(context.newMoov)
+    }
+
+    /// Writes a chapter mdat atom.
+    private func writeChapterMdat(_ sampleData: Data, writer: FileWriter) throws {
+        var mdatHeader = BinaryWriter(capacity: 8)
+        mdatHeader.writeUInt32(UInt32(8 + sampleData.count))
+        mdatHeader.writeLatin1String("mdat")
+        try writer.write(mdatHeader.data)
+        try writer.write(sampleData)
     }
 
     /// Returns atoms in a range, excluding specified types.

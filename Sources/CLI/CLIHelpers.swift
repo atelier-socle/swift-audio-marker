@@ -36,10 +36,11 @@ enum CLIHelpers {
         case "markdown": return .markdown
         case "lrc": return .lrc
         case "ttml": return .ttml
+        case "podcast-ns", "podcast-namespace": return .podcastNamespace
         default:
             throw ValidationError(
                 "Unknown format \"\(string)\". "
-                    + "Expected: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, lrc, ttml."
+                    + "Expected: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, lrc, ttml, podcast-ns."
             )
         }
     }

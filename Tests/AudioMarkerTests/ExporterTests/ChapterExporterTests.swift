@@ -83,6 +83,22 @@ struct ChapterExporterTests {
         #expect(imported[0].title == "Introduction")
     }
 
+    @Test("Exports to Podcast Namespace JSON")
+    func exportPodcastNamespace() throws {
+        let result = try exporter.export(sampleChapters, format: .podcastNamespace)
+        #expect(result.contains("\"version\" : \"1.2.0\""))
+        #expect(result.contains("Introduction"))
+        #expect(result.contains("startTime"))
+    }
+
+    @Test("Imports from Podcast Namespace JSON")
+    func importPodcastNamespace() throws {
+        let json = try exporter.export(sampleChapters, format: .podcastNamespace)
+        let imported = try exporter.importChapters(from: json, format: .podcastNamespace)
+        #expect(imported.count == 3)
+        #expect(imported[0].title == "Introduction")
+    }
+
     @Test("Markdown import throws importNotSupported")
     func markdownImportThrows() {
         #expect(throws: ExportError.self) {
@@ -124,7 +140,7 @@ struct ChapterExporterTests {
 
     @Test(
         "Round-trip preserves chapters for importable formats",
-        arguments: [ExportFormat.podloveJSON, .podloveXML, .mp4chaps]
+        arguments: [ExportFormat.podloveJSON, .podloveXML, .mp4chaps, .podcastNamespace]
     )
     func roundTrip(format: ExportFormat) throws {
         let exported = try exporter.export(sampleChapters, format: format)

@@ -365,7 +365,7 @@ struct ID3WriterTests {
 
     // MARK: - Helpers
 
-    private func createTempFile(tagData: Data) throws -> URL {
+    func createTempFile(tagData: Data) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".mp3")
         var fileData = tagData
@@ -374,7 +374,162 @@ struct ID3WriterTests {
         return url
     }
 
-    private func cleanup(_ url: URL) {
+    func cleanup(_ url: URL) {
         try? FileManager.default.removeItem(at: url)
+    }
+}
+
+// MARK: - CHAP End Time
+
+extension ID3WriterTests {
+
+    @Test("CHAP endTime uses next chapter start when end is nil")
+    func chapEndTimeFromNextChapter() throws {
+        let url = try createTempFile(tagData: Data())
+        defer { cleanup(url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(start: .zero, title: "First"),
+            Chapter(start: .milliseconds(30_000), title: "Second"),
+            Chapter(start: .milliseconds(60_000), title: "Third")
+        ])
+
+        let writer = ID3Writer()
+        try writer.write(info, to: url)
+
+        let reader = ID3Reader()
+        let (_, frames) = try reader.readRawFrames(from: url)
+        let chapFrames = frames.filter { $0.frameID == "CHAP" }
+        #expect(chapFrames.count == 3)
+
+        // Verify endTime of first chapter equals startTime of second.
+        guard case .chapter(_, let startTime0, let endTime0, _) = chapFrames[0] else {
+            Issue.record("Expected CHAP frame")
+            return
+        }
+        #expect(startTime0 == 0)
+        #expect(endTime0 == 30_000)
+
+        // Verify endTime of second chapter equals startTime of third.
+        guard case .chapter(_, let startTime1, let endTime1, _) = chapFrames[1] else {
+            Issue.record("Expected CHAP frame")
+            return
+        }
+        #expect(startTime1 == 30_000)
+        #expect(endTime1 == 60_000)
+
+        // Verify endTime of last chapter is startTime + 1.
+        guard case .chapter(_, let startTime2, let endTime2, _) = chapFrames[2] else {
+            Issue.record("Expected CHAP frame")
+            return
+        }
+        #expect(startTime2 == 60_000)
+        #expect(endTime2 == 60_001)
+    }
+
+    @Test("CHAP endTime uses explicit end when provided")
+    func chapEndTimeExplicit() throws {
+        let url = try createTempFile(tagData: Data())
+        defer { cleanup(url) }
+
+        var info = AudioFileInfo()
+        info.chapters = ChapterList([
+            Chapter(
+                start: .zero, title: "First",
+                end: .milliseconds(25_000)),
+            Chapter(
+                start: .milliseconds(30_000), title: "Second",
+                end: .milliseconds(55_000))
+        ])
+
+        let writer = ID3Writer()
+        try writer.write(info, to: url)
+
+        let reader = ID3Reader()
+        let (_, frames) = try reader.readRawFrames(from: url)
+        let chapFrames = frames.filter { $0.frameID == "CHAP" }
+        #expect(chapFrames.count == 2)
+
+        guard case .chapter(_, _, let endTime0, _) = chapFrames[0] else {
+            Issue.record("Expected CHAP frame")
+            return
+        }
+        #expect(endTime0 == 25_000)
+
+        guard case .chapter(_, _, let endTime1, _) = chapFrames[1] else {
+            Issue.record("Expected CHAP frame")
+            return
+        }
+        #expect(endTime1 == 55_000)
+    }
+}
+
+// MARK: - APIC Picture Type
+
+extension ID3WriterTests {
+
+    @Test("Written artwork has front cover picture type (0x03)")
+    func writeArtworkHasFrontCoverPictureType() throws {
+        let url = try createTempFile(tagData: Data())
+        defer { cleanup(url) }
+
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: UInt8(0xAB), count: 50))
+        var info = AudioFileInfo()
+        info.metadata.artwork = Artwork(data: imageData, format: .jpeg)
+
+        let writer = ID3Writer()
+        try writer.write(info, to: url)
+
+        let reader = ID3Reader()
+        let (_, frames) = try reader.readRawFrames(from: url)
+        let apicFrames = frames.filter { $0.frameID == "APIC" }
+        #expect(apicFrames.count == 1)
+
+        guard case .attachedPicture(let pictureType, let mimeType, _, let data) = apicFrames.first
+        else {
+            Issue.record("Expected APIC frame")
+            return
+        }
+        #expect(pictureType == 3)
+        #expect(mimeType == "image/jpeg")
+        #expect(data == imageData)
+    }
+
+    @Test("APIC frame binary contains correct picture type byte")
+    func apicFrameBinaryPictureType() throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10])
+        let builder = ID3FrameBuilder(version: .v2_3)
+        let frameData = builder.buildFrame(
+            .attachedPicture(
+                pictureType: 3, mimeType: "image/jpeg",
+                description: "", data: imageData))
+
+        // Frame layout: ID(4) + Size(4) + Flags(2) + Encoding(1) + MIME+null + PictureType(1) + ...
+        // Find picture type byte: skip header (10), encoding (1), "image/jpeg\0" (11 bytes)
+        let pictureTypeOffset = 10 + 1 + "image/jpeg".count + 1
+        #expect(frameData[pictureTypeOffset] == 0x03)
+    }
+
+    @Test("Read APIC preserves custom picture type through round-trip")
+    func readAPICPreservesPictureType() throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: UInt8(0xCC), count: 20))
+        let apicFrame = ID3TestHelper.buildAPICFrame(
+            mimeType: "image/jpeg", pictureType: 5,
+            description: "", imageData: imageData)
+        let tag = ID3TestHelper.buildTag(version: .v2_3, frames: [apicFrame])
+        let url = try createTempFile(tagData: tag)
+        defer { cleanup(url) }
+
+        let reader = ID3Reader()
+        let (_, frames) = try reader.readRawFrames(from: url)
+        let apicFrames = frames.filter { $0.frameID == "APIC" }
+        #expect(apicFrames.count == 1)
+
+        guard case .attachedPicture(let pictureType, _, _, _) = apicFrames.first else {
+            Issue.record("Expected APIC frame")
+            return
+        }
+        #expect(pictureType == 5)
     }
 }
