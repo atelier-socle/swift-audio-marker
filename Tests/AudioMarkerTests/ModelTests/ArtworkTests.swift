@@ -93,6 +93,45 @@ struct ArtworkTests {
         }
     }
 
+    // MARK: - Artwork from valid file
+
+    @Test("Init from valid JPEG file")
+    func initFromValidFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".jpg")
+        let jpegData = Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 0x00, count: 100)
+        try jpegData.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let artwork = try Artwork(contentsOf: url)
+        #expect(artwork.format == .jpeg)
+        #expect(artwork.data == jpegData)
+    }
+
+    @Test("Init from valid PNG file")
+    func initFromPNGFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".png")
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47]) + Data(repeating: 0x00, count: 100)
+        try pngData.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let artwork = try Artwork(contentsOf: url)
+        #expect(artwork.format == .png)
+    }
+
+    @Test("Init from file with unrecognized format throws")
+    func initFromFileUnrecognizedFormat() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".dat")
+        try Data([0x00, 0x01, 0x02, 0x03, 0x04]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(throws: ArtworkError.unrecognizedFormat) {
+            _ = try Artwork(contentsOf: url)
+        }
+    }
+
     // MARK: - Error descriptions
 
     @Test("unrecognizedFormat error provides meaningful description")
