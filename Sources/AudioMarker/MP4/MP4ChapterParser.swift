@@ -112,24 +112,61 @@ extension MP4ChapterParser {
 
 extension MP4ChapterParser {
 
-    /// Parses QuickTime chapters from a text track in the `moov` atom.
+    /// Parses QuickTime chapters from text tracks in the `moov` atom.
     ///
-    /// Best-effort: looks for a `trak` with handler type `text`, then
-    /// reads sample times from `stts` and sample data from `stco`/`stsz`.
-    /// Parses `href` atoms from tx3g samples for chapter URLs, and reads
-    /// per-chapter artwork from a referenced video track.
+    /// Handles files with multiple text tracks (e.g. GarageBand Enhanced Podcasts
+    /// where one track has clean titles and another has `href` URLs). Merges
+    /// titles from the cleanest track with URLs from the track that has them.
     private func parseQuickTimeChapters(
         moov: MP4Atom,
         reader: FileReader
     ) throws -> ChapterList? {
-        guard let textTrack = findTextTrack(in: moov, reader: reader) else {
-            return nil
+        let textTracks = findAllTextTracks(in: moov, reader: reader)
+        guard !textTracks.isEmpty else { return nil }
+
+        // Parse chapters from each text track.
+        var parsedSets: [[Chapter]] = []
+        for trak in textTracks {
+            if let chapters = try readChaptersFromTextTrack(trak, reader: reader) {
+                parsedSets.append(chapters)
+            }
         }
 
-        let timescale = try readTrackTimescale(textTrack, reader: reader)
+        guard !parsedSets.isEmpty else { return nil }
+
+        var chapters: [Chapter]
+        if parsedSets.count == 1 {
+            chapters = parsedSets[0]
+        } else {
+            chapters = mergeTextTrackChapters(parsedSets)
+        }
+
+        // Enrich with per-chapter artwork from video track.
+        let artworks = readChapterArtwork(moov: moov, reader: reader)
+        if !artworks.isEmpty {
+            var enriched: [Chapter] = []
+            for (index, chapter) in chapters.enumerated() {
+                let art = index < artworks.count ? artworks[index] : nil
+                enriched.append(
+                    Chapter(
+                        start: chapter.start, title: chapter.title,
+                        url: chapter.url, artwork: art))
+            }
+            chapters = enriched
+        }
+
+        return chapters.isEmpty ? nil : ChapterList(chapters)
+    }
+
+    /// Reads chapters from a single text track, filtering spacers and trimming titles.
+    private func readChaptersFromTextTrack(
+        _ trak: MP4Atom,
+        reader: FileReader
+    ) throws -> [Chapter]? {
+        let timescale = try readTrackTimescale(trak, reader: reader)
         guard timescale > 0 else { return nil }
 
-        guard let stbl = textTrack.find(path: "mdia.minf.stbl") else { return nil }
+        guard let stbl = trak.find(path: "mdia.minf.stbl") else { return nil }
 
         let sampleTimes = try readSampleTimes(stbl: stbl, reader: reader)
         let sampleOffsets = try readChunkOffsets(stbl: stbl, reader: reader)
@@ -162,42 +199,95 @@ extension MP4ChapterParser {
                 continue
             }
 
-            let title = trimmedTitle.isEmpty ? "Chapter \(chapters.count + 1)" : content.title
+            let title =
+                trimmedTitle.isEmpty
+                ? "Chapter \(chapters.count + 1)" : trimmedTitle
             chapters.append(
                 Chapter(
                     start: .seconds(seconds), title: title, url: content.url))
             cumulativeTime += duration
         }
 
-        guard !chapters.isEmpty else { return nil }
-
-        // Enrich chapters with per-chapter artwork from video track.
-        let artworks = readChapterArtwork(moov: moov, reader: reader)
-        if !artworks.isEmpty {
-            var enriched: [Chapter] = []
-            for (index, chapter) in chapters.enumerated() {
-                let art = index < artworks.count ? artworks[index] : nil
-                enriched.append(
-                    Chapter(
-                        start: chapter.start, title: chapter.title,
-                        url: chapter.url, artwork: art))
-            }
-            return ChapterList(enriched)
-        }
-
-        return ChapterList(chapters)
+        return chapters.isEmpty ? nil : chapters
     }
 
-    /// Finds the first `trak` with handler type `text` or `sbtl`.
-    private func findTextTrack(in moov: MP4Atom, reader: FileReader) -> MP4Atom? {
+    /// Returns all text tracks referenced by `tref/chap`, or all text tracks if none referenced.
+    private func findAllTextTracks(in moov: MP4Atom, reader: FileReader) -> [MP4Atom] {
+        let chapTrackIDs = findChapTrackIDs(in: moov, reader: reader)
+
+        var allTextTracks: [MP4Atom] = []
+        var referencedTextTracks: [MP4Atom] = []
+
         for trak in moov.children(ofType: MP4AtomType.trak.rawValue) {
             if let hdlr = trak.find(path: "mdia.hdlr"),
                 isTextHandler(hdlr, reader: reader)
             {
-                return trak
+                allTextTracks.append(trak)
+                if let trackID = readTrackIDFromTkhd(trak, reader: reader),
+                    chapTrackIDs.contains(trackID)
+                {
+                    referencedTextTracks.append(trak)
+                }
             }
         }
-        return nil
+
+        return referencedTextTracks.isEmpty ? allTextTracks : referencedTextTracks
+    }
+
+    /// Merges chapters from multiple text tracks: titles from the cleanest track, URLs from any.
+    ///
+    /// GarageBand Enhanced Podcasts use two text tracks: one with clean titles (disabled)
+    /// and one with `href` URLs (enabled). This method picks titles from the non-URL track
+    /// and matches URLs by timestamp proximity.
+    private func mergeTextTrackChapters(_ sets: [[Chapter]]) -> [Chapter] {
+        let hasURLs: ([Chapter]) -> Bool = { $0.contains { $0.url != nil } }
+
+        // Title track: prefer the set without URLs (has cleaner titles).
+        let titleSet: [Chapter]
+        if let cleanSet = sets.first(where: { !hasURLs($0) }) {
+            titleSet = cleanSet
+        } else {
+            titleSet = sets.max(by: { $0.count < $1.count }) ?? sets[0]
+        }
+
+        // Build URL lookup from all tracks by timestamp (millisecond precision).
+        var urlByTime: [Int: URL] = [:]
+        for set in sets {
+            for chapter in set {
+                if let url = chapter.url {
+                    let key = Int(round(chapter.start.timeInterval * 1000))
+                    urlByTime[key] = url
+                }
+            }
+        }
+
+        guard !urlByTime.isEmpty else { return titleSet }
+
+        // Merge: title from titleSet, URL from closest timestamp match (within 2s).
+        return titleSet.map { chapter in
+            let key = Int(round(chapter.start.timeInterval * 1000))
+            let url = findClosestURL(for: key, in: urlByTime, tolerance: 2000)
+            return Chapter(
+                start: chapter.start, title: chapter.title,
+                url: url ?? chapter.url, artwork: chapter.artwork)
+        }
+    }
+
+    /// Finds the URL with the closest matching timestamp within tolerance (in milliseconds).
+    private func findClosestURL(
+        for timeMS: Int, in map: [Int: URL], tolerance: Int
+    ) -> URL? {
+        if let url = map[timeMS] { return url }
+        var bestURL: URL?
+        var bestDiff = Int.max
+        for (key, url) in map {
+            let diff = abs(key - timeMS)
+            if diff < bestDiff && diff <= tolerance {
+                bestDiff = diff
+                bestURL = url
+            }
+        }
+        return bestURL
     }
 
     /// Checks if a `hdlr` atom has handler type `text` or `sbtl`.
