@@ -1,5 +1,5 @@
 /// Complete parsed information from an audio file.
-public struct AudioFileInfo: Sendable {
+public struct AudioFileInfo: Sendable, Hashable {
 
     /// Global metadata (title, artist, artwork, etc.).
     public var metadata: AudioMetadata
