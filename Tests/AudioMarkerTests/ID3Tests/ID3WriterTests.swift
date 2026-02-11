@@ -243,6 +243,43 @@ struct ID3WriterTests {
         #expect(fileData == fakeAudio)
     }
 
+    @Test("Strip preserves chapters with original titles")
+    func stripPreservesChapters() throws {
+        let existingTag = ID3TestHelper.buildTag(
+            version: .v2_3,
+            frames: [
+                ID3TestHelper.buildTextFrame(id: "TIT2", text: "Song Title"),
+                ID3TestHelper.buildTextFrame(id: "TPE1", text: "Artist Name"),
+                ID3TestHelper.buildCHAPFrame(
+                    elementID: "chp0", startTime: 0, endTime: 30_000,
+                    subframes: [ID3TestHelper.buildTextFrame(id: "TIT2", text: "Intro")]),
+                ID3TestHelper.buildCHAPFrame(
+                    elementID: "chp1", startTime: 30_000, endTime: 60_000,
+                    subframes: [ID3TestHelper.buildTextFrame(id: "TIT2", text: "Main Topic")])
+            ])
+        let url = try createTempFile(tagData: existingTag)
+        defer { cleanup(url) }
+
+        let readerID3 = ID3Reader()
+        let before = try readerID3.read(from: url)
+        #expect(before.metadata.title == "Song Title")
+        #expect(before.chapters.count == 2)
+
+        let writer = ID3Writer()
+        try writer.stripTag(from: url)
+
+        let after = try readerID3.read(from: url)
+
+        // Metadata must be gone.
+        #expect(after.metadata.title == nil)
+        #expect(after.metadata.artist == nil)
+
+        // Chapters must be intact with original titles.
+        #expect(after.chapters.count == 2)
+        #expect(after.chapters[0].title == "Intro")
+        #expect(after.chapters[1].title == "Main Topic")
+    }
+
     @Test("Strip on file without tag is no-op")
     func stripNoTag() throws {
         let url = try createTempFile(tagData: Data())

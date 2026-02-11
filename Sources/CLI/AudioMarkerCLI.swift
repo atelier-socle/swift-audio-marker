@@ -1,6 +1,7 @@
 import ArgumentParser
 
 /// Command-line tool for managing audio file metadata and chapters.
+@available(macOS 14, iOS 17, macCatalyst 17, visionOS 1, *)
 public struct AudioMarkerCLI: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "audio-marker",

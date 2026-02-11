@@ -39,10 +39,14 @@ struct CLIStripShowcaseTests {
         var cmd = try Strip.parse([url.path, "--force"])
         try cmd.run()
 
-        // After stripping, the MP3 no longer has an ID3 tag — reading throws
-        #expect(throws: AudioMarkerError.self) {
-            _ = try AudioMarkerEngine().read(from: url)
-        }
+        // After stripping, metadata is gone but chapters are preserved.
+        let after = try AudioMarkerEngine().read(from: url)
+        #expect(after.metadata.title == nil)
+        #expect(after.metadata.artist == nil)
+        #expect(after.metadata.artwork == nil)
+        #expect(after.metadata.unsynchronizedLyrics == nil)
+        #expect(after.chapters.count == 1)
+        #expect(after.chapters[0].title == "Chapter")
     }
 
     // MARK: - Preserves Audio

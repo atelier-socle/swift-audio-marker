@@ -103,13 +103,16 @@ struct EngineShowcaseTests {
         #expect(exported.contains("Intro"))
         #expect(exported.contains("Verse"))
 
-        // 9. Strip removes the entire ID3 tag
+        // 9. Strip removes metadata but preserves chapters
         try engine.strip(from: url)
 
-        // 10. After stripping, the MP3 no longer has an ID3 tag — reading throws
-        #expect(throws: AudioMarkerError.self) {
-            _ = try engine.read(from: url)
-        }
+        // 10. Metadata is gone, chapters are intact
+        let stripped = try engine.read(from: url)
+        #expect(stripped.metadata.title == nil)
+        #expect(stripped.metadata.artist == nil)
+        #expect(stripped.metadata.artwork == nil)
+        #expect(stripped.chapters.count == 3)
+        #expect(stripped.chapters[0].title == "Intro")
     }
 
     // MARK: - Complete M4A Workflow

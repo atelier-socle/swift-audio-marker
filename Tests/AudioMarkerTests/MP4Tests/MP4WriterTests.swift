@@ -89,6 +89,30 @@ struct MP4WriterTests {
         #expect(after.chapters.isEmpty)
     }
 
+    @Test("Strip metadata preserves chapters with original titles")
+    func stripPreservesChapters() throws {
+        let url = try createTestMP4WithMetadataChaptersAndMdat()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let before = try reader.read(from: url)
+        #expect(before.metadata.title == "Album Title")
+        #expect(before.chapters.count == 2)
+        #expect(before.chapters[0].title == "First Chapter")
+        #expect(before.chapters[1].title == "Second Chapter")
+
+        try writer.stripMetadata(from: url)
+        let after = try reader.read(from: url)
+
+        // Metadata must be gone.
+        #expect(after.metadata.title == nil)
+        #expect(after.metadata.artist == nil)
+
+        // Chapters must be intact with original titles.
+        #expect(after.chapters.count == 2)
+        #expect(after.chapters[0].title == "First Chapter")
+        #expect(after.chapters[1].title == "Second Chapter")
+    }
+
     // MARK: - Audio Data Preservation
 
     @Test("Write preserves mdat audio data")
@@ -172,6 +196,59 @@ struct MP4WriterTests {
         #expect(after.metadata.title == nil)
     }
 
+    // MARK: - Free Atom Gap (stco/co64 Offset Correction)
+
+    @Test("Write with free atom between moov and mdat preserves correct stco offsets")
+    func writeWithFreeAtomBetweenMoovAndMdat() throws {
+        let mdatContent = Data(repeating: 0xCD, count: 128)
+        let url = try createTestMP4WithFreeBeforeMdat(mdatContent: mdatContent)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var info = AudioFileInfo()
+        info.metadata.title = "Gap Test"
+
+        try writer.write(info, to: url)
+
+        // Verify mdat content is preserved and stco points within mdat.
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        let mdat = try #require(atoms.first { $0.type == "mdat" })
+        let readMdat = try fileReader.read(at: mdat.dataOffset, count: Int(mdat.dataSize))
+        #expect(readMdat == mdatContent)
+
+        // Read stco offset from the output moov.
+        let moov = try #require(atoms.first { $0.type == "moov" })
+        let stcoOffset = try findStcoFirstOffset(in: moov, reader: fileReader)
+        #expect(stcoOffset >= mdat.offset + 8)
+        #expect(stcoOffset < mdat.offset + mdat.size)
+    }
+
+    @Test("Strip with free atom between moov and mdat preserves correct stco offsets")
+    func stripWithFreeAtomBetweenMoovAndMdat() throws {
+        let mdatContent = Data(repeating: 0xEF, count: 128)
+        let url = try createTestMP4WithFreeBeforeMdatAndMetadata(mdatContent: mdatContent)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try writer.stripMetadata(from: url)
+
+        let fileReader = try FileReader(url: url)
+        defer { fileReader.close() }
+
+        let parser = MP4AtomParser()
+        let atoms = try parser.parseAtoms(from: fileReader)
+        let mdat = try #require(atoms.first { $0.type == "mdat" })
+        let readMdat = try fileReader.read(at: mdat.dataOffset, count: Int(mdat.dataSize))
+        #expect(readMdat == mdatContent)
+
+        let moov = try #require(atoms.first { $0.type == "moov" })
+        let stcoOffset = try findStcoFirstOffset(in: moov, reader: fileReader)
+        #expect(stcoOffset >= mdat.offset + 8)
+        #expect(stcoOffset < mdat.offset + mdat.size)
+    }
+
     // MARK: - Error Cases
 
     @Test("Throws for file without moov")
@@ -203,187 +280,5 @@ struct MP4WriterTests {
         #expect(throws: MP4Error.self) {
             _ = try writer.write(AudioFileInfo(), to: url)
         }
-    }
-}
-
-// MARK: - Test File Builders
-
-extension MP4WriterTests {
-
-    /// Creates a test MP4 with ftyp + moov + mdat.
-    private func createTestMP4WithMdat(
-        mdatContent: Data = Data(repeating: 0xFF, count: 64)
-    ) throws -> URL {
-        let ftyp = MP4TestHelper.buildFtyp()
-        let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
-
-        // Build stco with a placeholder offset pointing into mdat.
-        let stco = MP4TestHelper.buildStcoAtom(offsets: [0])
-        let stsz = MP4TestHelper.buildStszAtom(defaultSize: UInt32(mdatContent.count), sizes: [])
-        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
-        let stsc = MP4TestHelper.buildStscAtom()
-        let stbl = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stco, stsz, stsc])
-        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
-        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
-        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
-        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
-        let trak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
-        let moov = MP4TestHelper.buildContainerAtom(type: "moov", children: [mvhd, trak])
-
-        // Build mdat.
-        var mdatWriter = BinaryWriter()
-        mdatWriter.writeUInt32(UInt32(8 + mdatContent.count))
-        mdatWriter.writeLatin1String("mdat")
-        mdatWriter.writeData(mdatContent)
-
-        // Calculate actual stco offset.
-        let mdatDataOffset = UInt32(ftyp.count + moov.count + 8)
-
-        // Rebuild with correct offset.
-        let stcoFixed = MP4TestHelper.buildStcoAtom(offsets: [mdatDataOffset])
-        let stblFixed = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stcoFixed, stsz, stsc])
-        let minfFixed = MP4TestHelper.buildContainerAtom(type: "minf", children: [stblFixed])
-        let mdiaFixed = MP4TestHelper.buildContainerAtom(
-            type: "mdia", children: [mdhd, hdlr, minfFixed])
-        let trakFixed = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdiaFixed])
-        let moovFixed = MP4TestHelper.buildContainerAtom(type: "moov", children: [mvhd, trakFixed])
-
-        var file = Data()
-        file.append(ftyp)
-        file.append(moovFixed)
-        file.append(mdatWriter.data)
-
-        return try MP4TestHelper.createTempFile(data: file)
-    }
-
-    /// Creates a test MP4 with metadata and mdat.
-    private func createTestMP4WithMetadataAndMdat() throws -> URL {
-        let ftyp = MP4TestHelper.buildFtyp()
-        let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
-
-        let mdatContent = Data(repeating: 0xFF, count: 64)
-
-        let titleItem = MP4TestHelper.buildILSTTextItem(
-            type: "\u{00A9}nam", text: "Original Title")
-        let ilst = MP4TestHelper.buildContainerAtom(type: "ilst", children: [titleItem])
-        let meta = MP4TestHelper.buildMetaAtom(children: [ilst])
-        let udta = MP4TestHelper.buildContainerAtom(type: "udta", children: [meta])
-
-        let stco = MP4TestHelper.buildStcoAtom(offsets: [0])
-        let stsz = MP4TestHelper.buildStszAtom(defaultSize: UInt32(mdatContent.count), sizes: [])
-        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
-        let stsc = MP4TestHelper.buildStscAtom()
-        let stbl = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stco, stsz, stsc])
-        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
-        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
-        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
-        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
-        let trak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
-        let moov = MP4TestHelper.buildContainerAtom(
-            type: "moov", children: [mvhd, trak, udta])
-
-        var mdatWriter = BinaryWriter()
-        mdatWriter.writeUInt32(UInt32(8 + mdatContent.count))
-        mdatWriter.writeLatin1String("mdat")
-        mdatWriter.writeData(mdatContent)
-
-        // Calculate actual stco offset.
-        let mdatDataOffset = UInt32(ftyp.count + moov.count + 8)
-
-        // Rebuild with correct offset.
-        let stcoFixed = MP4TestHelper.buildStcoAtom(offsets: [mdatDataOffset])
-        let stblFixed = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stcoFixed, stsz, stsc])
-        let minfFixed = MP4TestHelper.buildContainerAtom(type: "minf", children: [stblFixed])
-        let mdiaFixed = MP4TestHelper.buildContainerAtom(
-            type: "mdia", children: [mdhd, hdlr, minfFixed])
-        let trakFixed = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdiaFixed])
-        let moovFixed = MP4TestHelper.buildContainerAtom(
-            type: "moov", children: [mvhd, trakFixed, udta])
-
-        var file = Data()
-        file.append(ftyp)
-        file.append(moovFixed)
-        file.append(mdatWriter.data)
-
-        return try MP4TestHelper.createTempFile(data: file)
-    }
-
-    /// Creates a test MP4 with ftyp + mdat + moov layout (mdat first).
-    private func createTestMP4MdatFirst() throws -> URL {
-        let ftyp = MP4TestHelper.buildFtyp()
-        let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
-        let mdatContent = Data(repeating: 0xAA, count: 64)
-
-        var mdatWriter = BinaryWriter()
-        mdatWriter.writeUInt32(UInt32(8 + mdatContent.count))
-        mdatWriter.writeLatin1String("mdat")
-        mdatWriter.writeData(mdatContent)
-
-        // stco offset points to mdat data (after ftyp + mdat header).
-        let mdatDataOffset = UInt32(ftyp.count + 8)
-        let stco = MP4TestHelper.buildStcoAtom(offsets: [mdatDataOffset])
-        let stsz = MP4TestHelper.buildStszAtom(
-            defaultSize: UInt32(mdatContent.count), sizes: [])
-        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
-        let stsc = MP4TestHelper.buildStscAtom()
-        let stbl = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stco, stsz, stsc])
-        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
-        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
-        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
-        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
-        let trak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
-        let moov = MP4TestHelper.buildContainerAtom(type: "moov", children: [mvhd, trak])
-
-        // Layout: ftyp | mdat | moov.
-        var file = Data()
-        file.append(ftyp)
-        file.append(mdatWriter.data)
-        file.append(moov)
-        return try MP4TestHelper.createTempFile(data: file)
-    }
-
-    /// Creates a test MP4 with mdat-first layout and metadata.
-    private func createTestMP4MdatFirstWithMetadata() throws -> URL {
-        let ftyp = MP4TestHelper.buildFtyp()
-        let mvhd = MP4TestHelper.buildMVHD(timescale: 44100, duration: 441_000)
-        let mdatContent = Data(repeating: 0xBB, count: 64)
-
-        var mdatWriter = BinaryWriter()
-        mdatWriter.writeUInt32(UInt32(8 + mdatContent.count))
-        mdatWriter.writeLatin1String("mdat")
-        mdatWriter.writeData(mdatContent)
-
-        let titleItem = MP4TestHelper.buildILSTTextItem(
-            type: "\u{00A9}nam", text: "Original")
-        let ilst = MP4TestHelper.buildContainerAtom(type: "ilst", children: [titleItem])
-        let meta = MP4TestHelper.buildMetaAtom(children: [ilst])
-        let udta = MP4TestHelper.buildContainerAtom(type: "udta", children: [meta])
-
-        let mdatDataOffset = UInt32(ftyp.count + 8)
-        let stco = MP4TestHelper.buildStcoAtom(offsets: [mdatDataOffset])
-        let stsz = MP4TestHelper.buildStszAtom(
-            defaultSize: UInt32(mdatContent.count), sizes: [])
-        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 1, duration: 441_000)])
-        let stsc = MP4TestHelper.buildStscAtom()
-        let stbl = MP4TestHelper.buildContainerAtom(
-            type: "stbl", children: [stts, stco, stsz, stsc])
-        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "soun")
-        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 44100)
-        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
-        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
-        let trak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
-        let moov = MP4TestHelper.buildContainerAtom(
-            type: "moov", children: [mvhd, trak, udta])
-
-        var file = Data()
-        file.append(ftyp)
-        file.append(mdatWriter.data)
-        file.append(moov)
-        return try MP4TestHelper.createTempFile(data: file)
     }
 }

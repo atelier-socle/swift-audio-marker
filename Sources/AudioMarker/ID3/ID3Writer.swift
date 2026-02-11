@@ -87,15 +87,37 @@ public struct ID3Writer: Sendable {
         }
     }
 
-    /// Strips the ID3v2 tag from an MP3 file, preserving audio data.
+    /// Strips metadata from an MP3 file while preserving chapters.
+    ///
+    /// Removes the ID3v2 tag and rewrites it with only chapter frames
+    /// if any exist. Chapters are structural data, not metadata — use
+    /// ``AudioMarkerEngine/clearChapters(from:)`` to remove them
+    /// explicitly. If the file has no tag, this is a no-op.
     /// - Parameter url: The MP3 file URL.
     /// - Throws: ``ID3Error``, ``StreamingError``
     public func stripTag(from url: URL) throws {
         let (existingHeader, audioOffset) = try readExistingTagInfo(url)
 
-        guard existingHeader != nil else { return }
+        guard let header = existingHeader else { return }
 
-        try writeWithTempFile(tagData: Data(), audioOffset: audioOffset, source: url)
+        // Read existing chapters to preserve them.
+        let reader = ID3Reader()
+        let existingInfo: AudioFileInfo
+        do {
+            existingInfo = try reader.read(from: url)
+        } catch {
+            existingInfo = AudioFileInfo()
+        }
+
+        if existingInfo.chapters.isEmpty {
+            try writeWithTempFile(tagData: Data(), audioOffset: audioOffset, source: url)
+        } else {
+            var chaptersOnly = AudioFileInfo()
+            chaptersOnly.chapters = existingInfo.chapters
+            let tagBuilder = ID3TagBuilder(version: header.version)
+            let tagData = tagBuilder.buildTag(from: chaptersOnly)
+            try writeWithTempFile(tagData: tagData, audioOffset: audioOffset, source: url)
+        }
     }
 }
 

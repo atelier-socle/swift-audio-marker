@@ -36,12 +36,10 @@ public struct MP4Writer: Sendable {
             from: layout.moov, reader: reader,
             metadata: info.metadata, chapters: info.chapters)
 
-        let oldMoovSize = Int64(layout.moov.size)
-        let newMoovSize = Int64(newMoov.count)
-        let delta = newMoovSize - oldMoovSize
-
         let adjustedMoov: Data
         if layout.moovBeforeMdat {
+            let originalSpan = Int64(layout.mdat.offset - layout.moov.offset)
+            let delta = Int64(newMoov.count) - originalSpan
             adjustedMoov = try moovBuilder.adjustChunkOffsets(in: newMoov, delta: delta)
         } else {
             adjustedMoov = newMoov
@@ -52,10 +50,12 @@ public struct MP4Writer: Sendable {
             newMoov: adjustedMoov, source: url)
     }
 
-    /// Strips all metadata and chapters from an MP4 file.
+    /// Strips metadata from an MP4 file while preserving chapters.
     ///
-    /// Rebuilds the `moov` atom without the `udta` atom, preserving
-    /// the audio data and track structure.
+    /// Rebuilds the `moov` atom with empty metadata but retains the
+    /// existing chapter structure. Chapters are structural data, not
+    /// metadata — use ``AudioMarkerEngine/clearChapters(from:)`` to
+    /// remove them explicitly.
     /// - Parameter url: Source MP4 file URL.
     /// - Throws: ``MP4Error``, ``StreamingError``
     public func stripMetadata(from url: URL) throws {
@@ -67,15 +67,19 @@ public struct MP4Writer: Sendable {
 
         let layout = try analyzeLayout(atoms)
 
+        // Preserve existing chapters — they are structural, not metadata.
+        let chapterParser = MP4ChapterParser()
+        let existingChapters = try chapterParser.parseChapters(from: atoms, reader: reader)
+
         let moovBuilder = MP4MoovBuilder()
         let newMoov = try moovBuilder.rebuildMoov(
             from: layout.moov, reader: reader,
-            metadata: AudioMetadata(), chapters: ChapterList())
-
-        let delta = Int64(newMoov.count) - Int64(layout.moov.size)
+            metadata: AudioMetadata(), chapters: existingChapters)
 
         let adjustedMoov: Data
         if layout.moovBeforeMdat {
+            let originalSpan = Int64(layout.mdat.offset - layout.moov.offset)
+            let delta = Int64(newMoov.count) - originalSpan
             adjustedMoov = try moovBuilder.adjustChunkOffsets(in: newMoov, delta: delta)
         } else {
             adjustedMoov = newMoov

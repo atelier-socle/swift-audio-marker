@@ -163,12 +163,15 @@ struct ID3ShowcaseTests {
         #expect(before.metadata.artwork != nil)
         #expect(!before.chapters.isEmpty)
 
-        // Strip removes the entire ID3 tag
+        // Strip removes metadata but preserves chapters
         try engine.strip(from: url)
 
-        // After stripping, the MP3 no longer has an ID3 tag — reading throws
-        #expect(throws: AudioMarkerError.self) {
-            _ = try engine.read(from: url)
-        }
+        // Metadata is gone, chapters are intact with original titles
+        let after = try engine.read(from: url)
+        #expect(after.metadata.title == nil)
+        #expect(after.metadata.artist == nil)
+        #expect(after.metadata.artwork == nil)
+        #expect(after.chapters.count == 1)
+        #expect(after.chapters[0].title == "Chapter")
     }
 }
