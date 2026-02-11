@@ -97,6 +97,7 @@ private final class TTMLParserDelegate: NSObject, XMLParserDelegate {
 
     // Content.
     private var divisions: [TTMLDivision] = []
+    private var orphanParagraphs: [TTMLParagraph] = []
 
     // Parsing state stack.
     var elementStack: [String] = []
@@ -151,7 +152,13 @@ private final class TTMLParserDelegate: NSObject, XMLParserDelegate {
     // MARK: - Build Result
 
     func buildDocument() -> TTMLDocument {
-        TTMLDocument(
+        // Collect any <p> elements found outside <div> into a default division.
+        var allDivisions = divisions
+        if !orphanParagraphs.isEmpty {
+            allDivisions.append(TTMLDivision(paragraphs: orphanParagraphs))
+        }
+
+        return TTMLDocument(
             language: language,
             timeBase: timeBase,
             frameRate: frameRate,
@@ -160,7 +167,7 @@ private final class TTMLParserDelegate: NSObject, XMLParserDelegate {
             styles: styles,
             regions: regions,
             agents: agents,
-            divisions: divisions
+            divisions: allDivisions
         )
     }
 
@@ -438,6 +445,8 @@ extension TTMLParserDelegate {
 
         if inDiv {
             currentDivParagraphs.append(paragraph)
+        } else {
+            orphanParagraphs.append(paragraph)
         }
     }
 

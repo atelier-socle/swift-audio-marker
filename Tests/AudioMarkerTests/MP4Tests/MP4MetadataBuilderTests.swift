@@ -238,3 +238,49 @@ struct MP4MetadataBuilderTests {
         return try metadataParser.parseMetadata(from: atoms, reader: reader)
     }
 }
+
+// MARK: - Synchronized Lyrics
+
+extension MP4MetadataBuilderTests {
+
+    @Test("Builds synchronized lyrics as LRC in ©lyr atom")
+    func buildSynchronizedLyrics() throws {
+        var metadata = AudioMetadata()
+        let syncLyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(time: .zero, text: "Hello"),
+                LyricLine(time: .seconds(5), text: "World")
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+        // Should be stored as unsynchronized lyrics (LRC text in ©lyr).
+        #expect(roundTripped.unsynchronizedLyrics != nil)
+        #expect(roundTripped.unsynchronizedLyrics?.contains("[00:00.00]") == true)
+        // Should also be parsed back as synchronized lyrics.
+        #expect(roundTripped.synchronizedLyrics.count == 1)
+        #expect(roundTripped.synchronizedLyrics[0].lines.count == 2)
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].text == "Hello")
+        #expect(roundTripped.synchronizedLyrics[0].lines[1].text == "World")
+    }
+
+    @Test("Prefers synchronized lyrics over unsynchronized in ©lyr")
+    func prefersSynchronizedOverUnsynchronized() throws {
+        var metadata = AudioMetadata()
+        let syncLyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(time: .zero, text: "Sync line")
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+        metadata.unsynchronizedLyrics = "Plain text lyrics"
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+        // Synchronized should win (written as LRC).
+        #expect(roundTripped.unsynchronizedLyrics?.contains("[00:00.00]") == true)
+        #expect(roundTripped.synchronizedLyrics.count == 1)
+    }
+}

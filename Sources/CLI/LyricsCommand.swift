@@ -34,7 +34,8 @@ extension Lyrics {
             let engine = AudioMarkerEngine()
             let info = try engine.read(from: url)
 
-            guard let syncLyrics = info.metadata.synchronizedLyrics.first else {
+            let allLyrics = info.metadata.synchronizedLyrics
+            guard !allLyrics.isEmpty else {
                 throw ValidationError("No synchronized lyrics found in \"\(url.lastPathComponent)\".")
             }
 
@@ -43,13 +44,11 @@ extension Lyrics {
             let output: String
             switch exportFormat {
             case .lrc:
-                output = LRCParser.export(syncLyrics)
+                output = LRCParser.export(allLyrics[0])
             case .ttml:
-                output = TTMLExporter.export(
-                    syncLyrics,
-                    audioDuration: info.duration,
-                    title: info.metadata.title
-                )
+                let doc = TTMLDocument.from(
+                    allLyrics, title: info.metadata.title)
+                output = TTMLExporter.exportDocument(doc)
             default:
                 throw ValidationError(
                     "Unsupported lyrics export format \"\(format)\". Expected: lrc, ttml."
@@ -117,6 +116,7 @@ extension Lyrics {
             }
 
             info.metadata.synchronizedLyrics = lyrics
+            info.metadata.unsynchronizedLyrics = nil
             try engine.modify(info, in: fileURL)
 
             let count = lyrics.reduce(0) { $0 + $1.lines.count }

@@ -79,9 +79,24 @@ extension MP4MetadataBuilder {
         if let encoder = metadata.encoder {
             items.append(buildTextItem(type: "\u{00A9}too", text: encoder))
         }
-        if let lyrics = metadata.unsynchronizedLyrics {
+        if !metadata.synchronizedLyrics.isEmpty {
+            let lyricsText = serializeSynchronizedLyrics(metadata.synchronizedLyrics)
+            items.append(buildTextItem(type: "\u{00A9}lyr", text: lyricsText))
+        } else if let lyrics = metadata.unsynchronizedLyrics {
             items.append(buildTextItem(type: "\u{00A9}lyr", text: lyrics))
         }
+    }
+
+    /// Serializes synchronized lyrics for storage in ©lyr.
+    ///
+    /// Single-language lyrics are stored as LRC for maximum compatibility.
+    /// Multi-language lyrics are stored as TTML to preserve all language data.
+    private func serializeSynchronizedLyrics(_ lyrics: [SynchronizedLyrics]) -> String {
+        if lyrics.count == 1 {
+            return LRCParser.export(lyrics[0])
+        }
+        let doc = TTMLDocument.from(lyrics)
+        return TTMLExporter.exportDocument(doc)
     }
 
     /// Builds a single UTF-8 text metadata item.

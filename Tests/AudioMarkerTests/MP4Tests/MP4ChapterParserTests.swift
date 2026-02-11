@@ -387,6 +387,128 @@ extension MP4ChapterParserTests {
     }
 }
 
+// MARK: - Multi-Track Merge
+
+extension MP4ChapterParserTests {
+
+    @Test("Merges titles from non-URL track with URLs from URL track")
+    func mergesDualTextTracks() throws {
+        let data = MP4TestHelper.buildMP4WithDualTextTracks(
+            titlesOnly: ["Intro", "Main", "Outro"],
+            titlesWithURLs: [
+                (title: "Ch1", url: "https://example.com/1"),
+                (title: "Ch2", url: "https://example.com/2"),
+                (title: "Ch3", url: "https://example.com/3")
+            ]
+        )
+        let url = try MP4TestHelper.createTempFile(data: data)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = try FileReader(url: url)
+        defer { reader.close() }
+
+        let atoms = try atomParser.parseAtoms(from: reader)
+        let chapters = try chapterParser.parseChapters(from: atoms, reader: reader)
+        #expect(chapters.count == 3)
+        // Titles from non-URL track.
+        #expect(chapters[0].title == "Intro")
+        #expect(chapters[1].title == "Main")
+        #expect(chapters[2].title == "Outro")
+        // URLs from URL track.
+        #expect(chapters[0].url?.absoluteString == "https://example.com/1")
+        #expect(chapters[1].url?.absoluteString == "https://example.com/2")
+        #expect(chapters[2].url?.absoluteString == "https://example.com/3")
+    }
+
+    @Test("Merge handles URL-only tracks (no clean title track)")
+    func mergeAllTracksHaveURLs() throws {
+        // Both tracks have URLs — should pick the one with more chapters.
+        let data = MP4TestHelper.buildMP4WithDualTextTracks(
+            titlesOnly: ["A"],
+            titlesWithURLs: [
+                (title: "B", url: "https://b.com/1"),
+                (title: "C", url: "https://b.com/2")
+            ]
+        )
+        let url = try MP4TestHelper.createTempFile(data: data)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = try FileReader(url: url)
+        defer { reader.close() }
+
+        let atoms = try atomParser.parseAtoms(from: reader)
+        let chapters = try chapterParser.parseChapters(from: atoms, reader: reader)
+        // Should use track 1 titles (no URLs = clean).
+        #expect(chapters[0].title == "A")
+    }
+}
+
+// MARK: - CO64 Support
+
+extension MP4ChapterParserTests {
+
+    @Test("Parses chapters with co64 (64-bit chunk offsets)")
+    func parseCo64Chapters() throws {
+        // Build an MP4 with co64 instead of stco.
+        let titles = ["Alpha", "Beta"]
+        var sampleData: [Data] = []
+        for title in titles {
+            sampleData.append(MP4TestHelper.buildTx3gSample(title: title))
+        }
+        let sampleSizes = sampleData.map { UInt32($0.count) }
+
+        let hdlr = MP4TestHelper.buildHdlrAtom(handlerType: "text")
+        let mdhd = MP4TestHelper.buildMdhdAtom(timescale: 1000)
+        let stts = MP4TestHelper.buildSttsAtom(entries: [(count: 2, duration: 10_000)])
+        let stsz = MP4TestHelper.buildStszAtom(defaultSize: 0, sizes: sampleSizes)
+        let stsc = MP4TestHelper.buildStscAtom()
+
+        // Placeholder co64 — will fix offsets below.
+        let co64Placeholder = MP4TestHelper.buildCo64Atom(offsets: [0, 0])
+
+        let stbl = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, co64Placeholder, stsz, stsc])
+        let minf = MP4TestHelper.buildContainerAtom(type: "minf", children: [stbl])
+        let mdia = MP4TestHelper.buildContainerAtom(type: "mdia", children: [mdhd, hdlr, minf])
+        let trak = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdia])
+
+        let ftyp = MP4TestHelper.buildFtyp()
+        let mvhd = MP4TestHelper.buildMVHD(timescale: 1000, duration: 20_000)
+        let moov = MP4TestHelper.buildContainerAtom(type: "moov", children: [mvhd, trak])
+
+        let headerSize = UInt64(ftyp.count + moov.count)
+        let offset1 = headerSize
+        let offset2 = headerSize + UInt64(sampleData[0].count)
+        let co64Fixed = MP4TestHelper.buildCo64Atom(offsets: [offset1, offset2])
+
+        let stblFixed = MP4TestHelper.buildContainerAtom(
+            type: "stbl", children: [stts, co64Fixed, stsz, stsc])
+        let minfFixed = MP4TestHelper.buildContainerAtom(type: "minf", children: [stblFixed])
+        let mdiaFixed = MP4TestHelper.buildContainerAtom(
+            type: "mdia", children: [mdhd, hdlr, minfFixed])
+        let trakFixed = MP4TestHelper.buildContainerAtom(type: "trak", children: [mdiaFixed])
+        let moovFixed = MP4TestHelper.buildContainerAtom(
+            type: "moov", children: [mvhd, trakFixed])
+
+        var file = Data()
+        file.append(ftyp)
+        file.append(moovFixed)
+        for s in sampleData { file.append(s) }
+
+        let url = try MP4TestHelper.createTempFile(data: file)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = try FileReader(url: url)
+        defer { reader.close() }
+
+        let atoms = try atomParser.parseAtoms(from: reader)
+        let chapters = try chapterParser.parseChapters(from: atoms, reader: reader)
+        #expect(chapters.count == 2)
+        #expect(chapters[0].title == "Alpha")
+        #expect(chapters[1].title == "Beta")
+    }
+}
+
 // MARK: - Truncated Edge Cases
 
 extension MP4ChapterParserTests {

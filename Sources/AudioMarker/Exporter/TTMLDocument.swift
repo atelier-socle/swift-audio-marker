@@ -100,9 +100,13 @@ extension TTMLDocument {
     }
 
     /// Creates a ``TTMLDocument`` from synchronized lyrics (for export upgrade).
-    /// - Parameter lyrics: Array of synchronized lyrics to convert.
+    /// - Parameters:
+    ///   - lyrics: Array of synchronized lyrics to convert.
+    ///   - title: Optional document title.
     /// - Returns: A TTML document representing the lyrics.
-    public static func from(_ lyrics: [SynchronizedLyrics]) -> TTMLDocument {
+    public static func from(
+        _ lyrics: [SynchronizedLyrics], title: String? = nil
+    ) -> TTMLDocument {
         let divisions = lyrics.map { syncLyrics in
             let paragraphs = syncLyrics.lines.map { line -> TTMLParagraph in
                 let spans = line.segments.map { segment in
@@ -120,7 +124,7 @@ extension TTMLDocument {
                 language: syncLyrics.language, paragraphs: paragraphs)
         }
         let lang = lyrics.first?.language ?? "und"
-        return TTMLDocument(language: lang, divisions: divisions)
+        return TTMLDocument(language: lang, title: title, divisions: divisions)
     }
 
     /// Converts a 2-letter ISO 639-1 code to a 3-letter ISO 639-2 code.

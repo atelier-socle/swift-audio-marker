@@ -86,27 +86,48 @@ public struct TTMLTimeParser: Sendable {
 
     // MARK: - Offset Time
 
-    /// Parses offset time: `1h`, `30m`, `5s`, `500ms`, `5.5s`, `100t`.
+    /// Parses offset time: `1h`, `30m`, `5s`, `500ms`, `5.5s`, `100t`, `1h30m`, `1m5s`.
     private func parseOffsetTime(_ string: String) throws -> AudioTimestamp {
-        // Check for specific unit suffixes.
+        // Handle "ms" suffix first (contains both 'm' and 's').
         if string.hasSuffix("ms") {
             return try parseNumericSuffix(string, suffix: "ms", multiplier: 0.001)
         }
-        if string.hasSuffix("h") {
-            return try parseNumericSuffix(string, suffix: "h", multiplier: 3600.0)
-        }
-        if string.hasSuffix("m") {
-            return try parseNumericSuffix(string, suffix: "m", multiplier: 60.0)
-        }
-        if string.hasSuffix("s") {
-            return try parseNumericSuffix(string, suffix: "s", multiplier: 1.0)
-        }
+        // Handle tick suffix.
         if string.hasSuffix("t") {
             let rate = Double(tickRate ?? 1)
             return try parseNumericSuffix(string, suffix: "t", multiplier: 1.0 / rate)
         }
+        // Parse single or combined offset (e.g., "5s", "1h30m", "1m5s").
+        return try parseCombinedOffset(string)
+    }
 
-        throw TTMLParseError.invalidTimeExpression(string)
+    /// Parses combined offset expressions like `"1h30m"`, `"1m5s"`, or single units like `"5s"`.
+    private func parseCombinedOffset(_ string: String) throws -> AudioTimestamp {
+        let multipliers: [Character: Double] = ["h": 3600.0, "m": 60.0, "s": 1.0]
+        var total: Double = 0
+        var numericAccum = ""
+        var foundAny = false
+
+        for char in string {
+            if let multiplier = multipliers[char] {
+                guard let value = Double(numericAccum) else {
+                    throw TTMLParseError.invalidTimeExpression(string)
+                }
+                total += value * multiplier
+                numericAccum = ""
+                foundAny = true
+            } else {
+                numericAccum.append(char)
+            }
+        }
+
+        guard foundAny, numericAccum.isEmpty else {
+            throw TTMLParseError.invalidTimeExpression(string)
+        }
+        guard total >= 0 else {
+            throw TTMLParseError.invalidTimeExpression(string)
+        }
+        return AudioTimestamp(timeInterval: total)
     }
 
     /// Parses a numeric value followed by a unit suffix.

@@ -124,10 +124,42 @@ extension MP4MetadataParser {
         case "\u{00A9}cmt": metadata.comment = try readTextDataAtom(atom, reader: reader)
         case "\u{00A9}too": metadata.encoder = try readTextDataAtom(atom, reader: reader)
         case "\u{00A9}lyr":
-            metadata.unsynchronizedLyrics = try readTextDataAtom(atom, reader: reader)
+            try applyLyricsAtom(atom, reader: reader, metadata: &metadata)
         default:
             try applyStructuredAtom(atom, reader: reader, metadata: &metadata)
         }
+    }
+
+    /// Handles the `©lyr` atom, storing both unsynchronized and synchronized lyrics.
+    ///
+    /// Detects whether the stored text is TTML (multi-language) or LRC (single-language)
+    /// and parses accordingly. TTML is detected by an `<?xml` or `<tt` prefix.
+    private func applyLyricsAtom(
+        _ atom: MP4Atom,
+        reader: FileReader,
+        metadata: inout AudioMetadata
+    ) throws {
+        let lyricsText = try readTextDataAtom(atom, reader: reader)
+        metadata.unsynchronizedLyrics = lyricsText
+        guard let lyricsText else { return }
+        let parsed = parseSynchronizedLyrics(lyricsText)
+        if !parsed.isEmpty {
+            metadata.synchronizedLyrics = parsed
+        }
+    }
+
+    /// Attempts to parse lyrics text as TTML first, then falls back to LRC.
+    private func parseSynchronizedLyrics(_ text: String) -> [SynchronizedLyrics] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("<?xml") || trimmed.hasPrefix("<tt") {
+            if let lyrics = try? TTMLParser().parseLyrics(from: text), !lyrics.isEmpty {
+                return lyrics
+            }
+        }
+        if let syncLyrics = try? LRCParser.parse(text), !syncLyrics.lines.isEmpty {
+            return [syncLyrics]
+        }
+        return []
     }
 
     /// Handles non-text ilst atoms (trkn, disk, covr, aART, cprt, gnre, tmpo, ----).

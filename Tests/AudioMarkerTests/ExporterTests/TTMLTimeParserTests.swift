@@ -94,6 +94,32 @@ struct TTMLTimeParserTests {
         #expect(timestamp == .zero)
     }
 
+    // MARK: - Combined Offset Time
+
+    @Test("Parses combined hours and minutes (1h30m)")
+    func combinedHoursMinutes() throws {
+        let timestamp = try parser.parse("1h30m")
+        #expect(timestamp == .seconds(5400))
+    }
+
+    @Test("Parses combined minutes and seconds (1m5s)")
+    func combinedMinutesSeconds() throws {
+        let timestamp = try parser.parse("1m5s")
+        #expect(timestamp == .seconds(65))
+    }
+
+    @Test("Parses combined hours, minutes, and seconds (2h15m30s)")
+    func combinedHoursMinutesSeconds() throws {
+        let timestamp = try parser.parse("2h15m30s")
+        #expect(timestamp == .seconds(8130))
+    }
+
+    @Test("Parses combined with fractional seconds (1m5.5s)")
+    func combinedWithFractional() throws {
+        let timestamp = try parser.parse("1m5.5s")
+        #expect(timestamp == .milliseconds(65_500))
+    }
+
     // MARK: - Whitespace Handling
 
     @Test("Trims leading and trailing whitespace")
