@@ -647,11 +647,10 @@ Planned for future releases:
 - **Linux support** — cross-platform Foundation compatibility
 - **Legacy ID3** — ID3v1 and ID3v2.2 read support
 - **Additional artwork formats** — WebP, AVIF, HEIF
-- **DocC catalog** — full API documentation
 
 ## Documentation
 
-Full documentation will be available in the DocC catalog (coming soon).
+Full API documentation is available as a DocC catalog bundled with the package. Open the project in Xcode and select **Product → Build Documentation** to browse it locally.
 
 ## Contributing
 
