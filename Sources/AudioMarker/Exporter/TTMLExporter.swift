@@ -255,12 +255,14 @@ public enum TTMLExporter: Sendable {
     }
 
     /// Escapes special XML characters.
+    ///
+    /// Apostrophes (`'`) are not escaped because they are safe in both
+    /// text content and double-quoted attribute values per the XML spec.
     static func xmlEscaped(_ string: String) -> String {
         string
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
     }
 }

@@ -108,7 +108,8 @@ extension TTMLDocument {
         _ lyrics: [SynchronizedLyrics], title: String? = nil
     ) -> TTMLDocument {
         let divisions = lyrics.map { syncLyrics in
-            let paragraphs = syncLyrics.lines.map { line -> TTMLParagraph in
+            let sortedLines = syncLyrics.lines.sorted { $0.time < $1.time }
+            let paragraphs = sortedLines.enumerated().map { index, line -> TTMLParagraph in
                 let spans = line.segments.map { segment in
                     TTMLSpan(
                         begin: segment.startTime,
@@ -117,8 +118,15 @@ extension TTMLDocument {
                         styleID: segment.styleID
                     )
                 }
+                // Calculate end time from the next line's begin time.
+                let end: AudioTimestamp? =
+                    if index + 1 < sortedLines.count {
+                        sortedLines[index + 1].time
+                    } else {
+                        nil
+                    }
                 return TTMLParagraph(
-                    begin: line.time, text: line.text, spans: spans)
+                    begin: line.time, end: end, text: line.text, spans: spans)
             }
             return TTMLDivision(
                 language: syncLyrics.language, paragraphs: paragraphs)

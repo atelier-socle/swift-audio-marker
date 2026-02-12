@@ -84,7 +84,7 @@ struct TTMLExporterTests {
             lines: [LyricLine(time: .zero, text: "Rock & Roll <loud> \"yeah\" it's great")]
         )
         let result = TTMLExporter.export(lyrics)
-        #expect(result.contains("Rock &amp; Roll &lt;loud&gt; &quot;yeah&quot; it&apos;s great"))
+        #expect(result.contains("Rock &amp; Roll &lt;loud&gt; &quot;yeah&quot; it's great"))
     }
 
     @Test("Escapes special characters in title")
@@ -147,6 +147,17 @@ struct TTMLExporterTests {
         let result = TTMLExporter.export(lyrics, audioDuration: .seconds(10))
         #expect(result.contains("<span begin=\"00:00:00.000\" end=\"00:00:02.000\">Hello</span>"))
         #expect(result.contains("<span begin=\"00:00:02.000\" end=\"00:00:05.000\">world</span>"))
+    }
+
+    @Test("Does not escape apostrophes in text content")
+    func apostropheNotEscaped() {
+        let lyrics = SynchronizedLyrics(
+            language: "fra",
+            lines: [LyricLine(time: .zero, text: "L'amour n'a pas d'âge")]
+        )
+        let result = TTMLExporter.export(lyrics)
+        #expect(result.contains("L'amour n'a pas d'âge"))
+        #expect(!result.contains("&apos;"))
     }
 
     @Test("Exports karaoke span with style")

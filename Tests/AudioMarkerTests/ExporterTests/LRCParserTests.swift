@@ -121,10 +121,57 @@ struct LRCParserTests {
         )
         let result = LRCParser.export(lyrics)
         let lines = result.components(separatedBy: "\n")
-        #expect(lines.count == 3)
-        #expect(lines[0] == "[00:00.00]First line")
-        #expect(lines[1] == "[00:05.50]Second line")
-        #expect(lines[2] == "[01:30.00]Third line")
+        #expect(lines.count == 4)
+        #expect(lines[0] == "[la:eng]")
+        #expect(lines[1] == "[00:00.00]First line")
+        #expect(lines[2] == "[00:05.50]Second line")
+        #expect(lines[3] == "[01:30.00]Third line")
+    }
+
+    @Test("Export includes language tag when not und")
+    func exportIncludesLanguageTag() {
+        let lyrics = SynchronizedLyrics(
+            language: "fra",
+            lines: [LyricLine(time: .zero, text: "Bonjour")]
+        )
+        let result = LRCParser.export(lyrics)
+        #expect(result.hasPrefix("[la:fra]"))
+    }
+
+    @Test("Export omits language tag when und")
+    func exportOmitsLanguageTagForUnd() {
+        let lyrics = SynchronizedLyrics(
+            language: "und",
+            lines: [LyricLine(time: .zero, text: "Hello")]
+        )
+        let result = LRCParser.export(lyrics)
+        #expect(!result.contains("[la:"))
+    }
+
+    @Test("Parse reads embedded language tag")
+    func parseEmbeddedLanguage() throws {
+        let lrc = "[la:eng]\n[00:00.00]Hello"
+        let lyrics = try LRCParser.parse(lrc)
+        #expect(lyrics.language == "eng")
+        #expect(lyrics.lines.count == 1)
+    }
+
+    @Test("Explicit language parameter overrides embedded tag")
+    func explicitLanguageOverridesEmbedded() throws {
+        let lrc = "[la:eng]\n[00:00.00]Hello"
+        let lyrics = try LRCParser.parse(lrc, language: "fra")
+        #expect(lyrics.language == "fra")
+    }
+
+    @Test("Language round-trip through LRC preserves code")
+    func languageRoundTrip() throws {
+        let original = SynchronizedLyrics(
+            language: "eng",
+            lines: [LyricLine(time: .zero, text: "Hello")]
+        )
+        let exported = LRCParser.export(original)
+        let reimported = try LRCParser.parse(exported)
+        #expect(reimported.language == "eng")
     }
 
     // MARK: - Round-Trip

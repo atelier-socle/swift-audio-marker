@@ -205,6 +205,49 @@ struct TTMLExporterDocumentTests {
         #expect(result.contains("region=\"r1\""))
     }
 
+    @Test("TTMLDocument.from calculates end times from next line")
+    func fromCalculatesEndTimes() {
+        let lyrics = [
+            SynchronizedLyrics(
+                language: "eng",
+                lines: [
+                    LyricLine(time: .seconds(5), text: "First"),
+                    LyricLine(time: .seconds(10), text: "Second"),
+                    LyricLine(time: .seconds(15), text: "Third")
+                ])
+        ]
+        let doc = TTMLDocument.from(lyrics)
+        let result = TTMLExporter.exportDocument(doc)
+        #expect(result.contains("begin=\"00:00:05.000\" end=\"00:00:10.000\""))
+        #expect(result.contains("begin=\"00:00:10.000\" end=\"00:00:15.000\""))
+        // Last line has no end time.
+        #expect(result.contains("<p begin=\"00:00:15.000\">Third</p>"))
+    }
+
+    @Test("TTMLDocument.from preserves existing end times from segments")
+    func fromPreservesSegmentEndTimes() {
+        let lyrics = [
+            SynchronizedLyrics(
+                language: "eng",
+                lines: [
+                    LyricLine(
+                        time: .zero, text: "Hello world",
+                        segments: [
+                            LyricSegment(
+                                startTime: .zero, endTime: .seconds(2),
+                                text: "Hello"),
+                            LyricSegment(
+                                startTime: .seconds(2), endTime: .seconds(5),
+                                text: "world")
+                        ])
+                ])
+        ]
+        let doc = TTMLDocument.from(lyrics)
+        let result = TTMLExporter.exportDocument(doc)
+        #expect(result.contains("<span begin=\"00:00:00.000\" end=\"00:00:02.000\">Hello</span>"))
+        #expect(result.contains("<span begin=\"00:00:02.000\" end=\"00:00:05.000\">world</span>"))
+    }
+
     @Test("Exports TTMLDocument span with style")
     func exportDocumentSpanStyle() {
         let doc = TTMLDocument(
