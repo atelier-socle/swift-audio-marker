@@ -1,7 +1,7 @@
-# ci.yml — Continuous Integration for swift-gherkin-generator.
+# ci.yml — Continuous Integration for swift-audio-marker.
 #
 # Runs lint, build, test (with coverage), and cross-platform builds.
-# Platform builds target the GherkinGenerator library only (not the CLI)
+# Platform builds target the AudioMarker library only (not the CLI)
 # since swift-argument-parser may not compile on all platforms.
 
 name: CI
@@ -50,7 +50,7 @@ jobs:
       - name: Coverage Report
         run: |
           PROF_DATA=$(find .build -name "default.profdata" -type f | head -1)
-          TEST_BIN=$(find .build -name "GherkinGeneratorPackageTests" -type f ! -name "*.o" | head -1)
+          TEST_BIN=$(find .build -name "AudioMarkerPackageTests" -type f ! -name "*.o" | head -1)
           if [ -n "$PROF_DATA" ] && [ -n "$TEST_BIN" ]; then
             xcrun llvm-cov report "$TEST_BIN" \
               -instr-profile="$PROF_DATA" \
@@ -59,7 +59,7 @@ jobs:
       - name: Generate lcov Coverage
         run: |
           PROF_DATA=$(find .build -name "default.profdata" -type f | head -1)
-          TEST_BIN=$(find .build -name "GherkinGeneratorPackageTests" -type f ! -name "*.o" | head -1)
+          TEST_BIN=$(find .build -name "AudioMarkerPackageTests" -type f ! -name "*.o" | head -1)
           if [ -n "$PROF_DATA" ] && [ -n "$TEST_BIN" ]; then
             xcrun llvm-cov export "$TEST_BIN" \
               -instr-profile="$PROF_DATA" \
@@ -84,10 +84,6 @@ jobs:
         include:
           - platform: iOS
             destination: "generic/platform=iOS Simulator"
-          - platform: tvOS
-            destination: "generic/platform=tvOS Simulator"
-          - platform: watchOS
-            destination: "generic/platform=watchOS Simulator"
           - platform: visionOS
             destination: "generic/platform=visionOS Simulator"
           - platform: Mac Catalyst
@@ -99,7 +95,7 @@ jobs:
       - name: Build for ${{ matrix.platform }}
         run: |
           xcodebuild build \
-            -scheme GherkinGenerator \
+            -scheme AudioMarker \
             -destination "${{ matrix.destination }}" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
