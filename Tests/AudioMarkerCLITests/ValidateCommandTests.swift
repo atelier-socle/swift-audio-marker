@@ -60,6 +60,18 @@ struct ValidateCommandTests {
         try cmd.run()
     }
 
+    @Test("Validate JSON output includes warnings when present")
+    func validateJSONWithWarnings() throws {
+        // Create MP3 with no title — MetadataTitleRule emits a warning.
+        let tag = ID3TestHelper.buildTag(version: .v2_3, frames: [])
+        let url = try ID3TestHelper.createTempFile(tagData: tag)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // JSON format with warnings-only (no errors) should succeed.
+        var cmd = try Validate.parse([url.path, "--format", "json"])
+        try cmd.run()
+    }
+
     @Test("Validate JSON output has correct structure for errors")
     func validateJSONWithErrors() throws {
         // Create MP3 with overlapping chapters.

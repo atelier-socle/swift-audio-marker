@@ -84,6 +84,54 @@ struct LyricsExportIntegrationTests {
         #expect(cmd.format == "lrc")
     }
 
+    // MARK: - Export WebVTT
+
+    @Test("Lyrics export produces WebVTT from SYLT")
+    func exportWebVTT() throws {
+        let url = try CLITestHelper.createMP3WithSyncLyrics(events: [
+            (text: "Hello", timestamp: 0),
+            (text: "World", timestamp: 5000)
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".vtt")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        var cmd = try Lyrics.Export.parse([
+            url.path, "--to", outputURL.path, "--format", "webvtt"
+        ])
+        try cmd.run()
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(content.contains("WEBVTT"))
+        #expect(content.contains("Hello"))
+    }
+
+    // MARK: - Export SRT
+
+    @Test("Lyrics export produces SRT from SYLT")
+    func exportSRT() throws {
+        let url = try CLITestHelper.createMP3WithSyncLyrics(events: [
+            (text: "Hello", timestamp: 0),
+            (text: "World", timestamp: 5000)
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".srt")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        var cmd = try Lyrics.Export.parse([
+            url.path, "--to", outputURL.path, "--format", "srt"
+        ])
+        try cmd.run()
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(content.contains("Hello"))
+        #expect(content.contains("-->"))
+    }
+
     // MARK: - Unsupported Format
 
     @Test("Lyrics export with unsupported format throws")
