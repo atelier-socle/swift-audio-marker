@@ -102,6 +102,37 @@ struct ExporterShowcaseTests {
         }
     }
 
+    // MARK: - Podcast Namespace
+
+    @Test("Export and import Podcasting 2.0 chapters")
+    func exportPodcastNamespace() throws {
+        let json = try exporter.export(sampleChapters, format: .podcastNamespace)
+
+        #expect(json.contains("Introduction"))
+        #expect(json.contains("Main Discussion"))
+
+        // Round-trip
+        let imported = try exporter.importChapters(from: json, format: .podcastNamespace)
+        #expect(imported.count == 3)
+        #expect(imported[0].title == "Introduction")
+        #expect(imported[1].title == "Main Discussion")
+    }
+
+    // MARK: - Cue Sheet
+
+    @Test("Export and import Cue Sheet format")
+    func exportCueSheet() throws {
+        let cue = try exporter.export(sampleChapters, format: .cueSheet)
+
+        #expect(cue.contains("TITLE"))
+        #expect(cue.contains("Introduction"))
+
+        // Round-trip
+        let imported = try exporter.importChapters(from: cue, format: .cueSheet)
+        #expect(imported.count == 3)
+        #expect(imported[0].title == "Introduction")
+    }
+
     // MARK: - Import into Audio File
 
     @Test("Import chapters from all formats into audio file")

@@ -133,6 +133,135 @@ struct CLILyricsShowcaseTests {
         #expect(info.metadata.synchronizedLyrics[0].lines[0].text == "Bonjour le monde")
     }
 
+    // MARK: - WebVTT Export
+
+    @Test("audiomarker lyrics export --format webvtt — WebVTT output to file")
+    func exportWebVTT() throws {
+        let url = try CLITestHelper.createMP3WithSyncLyrics(events: [
+            (text: "Hello", timestamp: 0),
+            (text: "World", timestamp: 5000)
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".vtt")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        var cmd = try Lyrics.Export.parse([
+            url.path, "--to", outputURL.path, "--format", "webvtt"
+        ])
+        try cmd.run()
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(content.contains("WEBVTT"))
+        #expect(content.contains("Hello"))
+    }
+
+    // MARK: - SRT Export
+
+    @Test("audiomarker lyrics export --format srt — SRT output to file")
+    func exportSRT() throws {
+        let url = try CLITestHelper.createMP3WithSyncLyrics(events: [
+            (text: "Hello", timestamp: 0),
+            (text: "World", timestamp: 5000)
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".srt")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        var cmd = try Lyrics.Export.parse([
+            url.path, "--to", outputURL.path, "--format", "srt"
+        ])
+        try cmd.run()
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(content.contains("Hello"))
+        #expect(content.contains("-->"))
+    }
+
+    // MARK: - WebVTT Import
+
+    @Test("audiomarker lyrics import --format webvtt — imports WebVTT lyrics")
+    func importWebVTT() throws {
+        let mp3URL = try CLITestHelper.createMP3(title: "VTT Import")
+        defer { try? FileManager.default.removeItem(at: mp3URL) }
+
+        let vttContent = """
+            WEBVTT
+
+            00:00:00.000 --> 00:00:05.000
+            Hello
+
+            00:00:05.000 --> 00:00:10.000
+            World
+            """
+        let vttURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".vtt")
+        try vttContent.write(to: vttURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: vttURL) }
+
+        var cmd = try Lyrics.Import.parse([
+            mp3URL.path, "--from", vttURL.path, "--format", "webvtt"
+        ])
+        try cmd.run()
+
+        let info = try AudioMarkerEngine().read(from: mp3URL)
+        #expect(info.metadata.synchronizedLyrics.count == 1)
+        #expect(info.metadata.synchronizedLyrics[0].lines.count == 2)
+    }
+
+    // MARK: - SRT Import
+
+    @Test("audiomarker lyrics import --format srt — imports SRT lyrics")
+    func importSRT() throws {
+        let mp3URL = try CLITestHelper.createMP3(title: "SRT Import")
+        defer { try? FileManager.default.removeItem(at: mp3URL) }
+
+        let srtContent = """
+            1
+            00:00:00,000 --> 00:00:05,000
+            Hello
+
+            2
+            00:00:05,000 --> 00:00:10,000
+            World
+            """
+        let srtURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".srt")
+        try srtContent.write(to: srtURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: srtURL) }
+
+        var cmd = try Lyrics.Import.parse([
+            mp3URL.path, "--from", srtURL.path, "--format", "srt"
+        ])
+        try cmd.run()
+
+        let info = try AudioMarkerEngine().read(from: mp3URL)
+        #expect(info.metadata.synchronizedLyrics.count == 1)
+        #expect(info.metadata.synchronizedLyrics[0].lines.count == 2)
+    }
+
+    // MARK: - Lyrics Clear
+
+    @Test("audiomarker lyrics clear --force — removes all lyrics")
+    func lyricsClear() throws {
+        let url = try CLITestHelper.createMP3WithSyncLyrics(events: [
+            (text: "Hello", timestamp: 0)
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var cmd = try Lyrics.Clear.parse([url.path, "--force"])
+        try cmd.run()
+
+        let info = try AudioMarkerEngine().read(from: url)
+        #expect(info.metadata.synchronizedLyrics.isEmpty)
+        #expect(info.metadata.unsynchronizedLyrics == nil)
+    }
+
+    // MARK: - TTML File Export
+
     @Test("audiomarker lyrics export --to file --format ttml — exports TTML file")
     func exportTTMLToFile() throws {
         let url = try CLITestHelper.createMP3WithSyncLyrics(events: [

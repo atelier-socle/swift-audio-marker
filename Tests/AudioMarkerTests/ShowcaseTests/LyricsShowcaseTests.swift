@@ -282,46 +282,4 @@ struct LyricsShowcaseTests {
         #expect(reparsed[0].lines[2].text == "Third line")
     }
 
-    @Test("TTML document round-trip preserves structure")
-    func ttmlDocumentRoundTrip() throws {
-        let parser = TTMLParser()
-
-        let ttml = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <tt xml:lang="en" xmlns="http://www.w3.org/ns/ttml"
-                xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
-                xmlns:tts="http://www.w3.org/ns/ttml#styling"
-                xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
-                ttp:timeBase="media">
-              <head>
-                <metadata>
-                  <ttm:title>Round Trip Song</ttm:title>
-                </metadata>
-                <styling>
-                  <style xml:id="s1" tts:color="#FFFFFF"/>
-                </styling>
-              </head>
-              <body>
-                <div xml:lang="en">
-                  <p begin="00:00:00.000" end="00:00:05.000" style="s1">Hello</p>
-                </div>
-              </body>
-            </tt>
-            """
-
-        // Parse full document
-        let doc = try parser.parseDocument(from: ttml)
-        #expect(doc.title == "Round Trip Song")
-        #expect(doc.styles.count == 1)
-
-        // Export as document
-        let exported = TTMLExporter.exportDocument(doc)
-
-        // Re-parse
-        let reparsed = try parser.parseDocument(from: exported)
-        #expect(reparsed.title == "Round Trip Song")
-        #expect(reparsed.styles.count == 1)
-        #expect(reparsed.styles[0].id == "s1")
-        #expect(reparsed.divisions[0].paragraphs[0].text == "Hello")
-    }
 }

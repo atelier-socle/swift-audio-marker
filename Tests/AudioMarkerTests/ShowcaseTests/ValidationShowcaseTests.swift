@@ -89,6 +89,46 @@ struct ValidationShowcaseTests {
         }
     }
 
+    // MARK: - Custom Rule
+
+    @Test("Custom validation rule — domain-specific logic")
+    func customRule() {
+        // Define a custom rule that requires a genre
+        struct GenreRequiredRule: ValidationRule {
+            let name = "Genre Required"
+            func validate(_ info: AudioFileInfo) -> [ValidationIssue] {
+                if info.metadata.genre == nil || info.metadata.genre?.isEmpty == true {
+                    return [
+                        ValidationIssue(
+                            severity: .warning,
+                            message: "Genre is recommended for discoverability.")
+                    ]
+                }
+                return []
+            }
+        }
+
+        // Create validator with only our custom rule
+        let validator = AudioValidator(rules: [GenreRequiredRule()])
+
+        // Missing genre → warning
+        let noGenre = AudioFileInfo(metadata: AudioMetadata(title: "No Genre"))
+        let result1 = validator.validate(noGenre)
+        #expect(result1.isValid)  // Warnings don't fail validation
+        #expect(result1.warnings.count == 1)
+        #expect(result1.warnings[0].message.contains("Genre"))
+
+        // With genre → clean
+        var meta = AudioMetadata(title: "Has Genre")
+        meta.genre = "Rock"
+        let withGenre = AudioFileInfo(metadata: meta)
+        let result2 = validator.validate(withGenre)
+        #expect(result2.isValid)
+        #expect(result2.warnings.isEmpty)
+    }
+
+    // MARK: - Auto-Validation
+
     @Test("Configuration validateBeforeWriting auto-validates on write")
     func autoValidation() throws {
         // Create a config with validation enabled (default)
