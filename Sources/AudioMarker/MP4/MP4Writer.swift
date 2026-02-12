@@ -54,8 +54,8 @@ public struct MP4Writer: Sendable {
     ///
     /// Rebuilds the `moov` atom with empty metadata but retains the
     /// existing chapter structure. Chapters are structural data, not
-    /// metadata — use ``AudioMarkerEngine/clearChapters(from:)`` to
-    /// remove them explicitly.
+    /// metadata — use ``AudioMarkerEngine/writeChapters(_:to:)`` with
+    /// an empty ``ChapterList`` to remove them explicitly.
     /// - Parameter url: Source MP4 file URL.
     /// - Throws: ``MP4Error``, ``StreamingError``
     public func stripMetadata(from url: URL) throws {

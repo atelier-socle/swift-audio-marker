@@ -91,8 +91,8 @@ public struct ID3Writer: Sendable {
     ///
     /// Removes the ID3v2 tag and rewrites it with only chapter frames
     /// if any exist. Chapters are structural data, not metadata — use
-    /// ``AudioMarkerEngine/clearChapters(from:)`` to remove them
-    /// explicitly. If the file has no tag, this is a no-op.
+    /// ``AudioMarkerEngine/writeChapters(_:to:)`` with an empty
+    /// ``ChapterList`` to remove them explicitly. If the file has no tag, this is a no-op.
     /// - Parameter url: The MP3 file URL.
     /// - Throws: ``ID3Error``, ``StreamingError``
     public func stripTag(from url: URL) throws {
