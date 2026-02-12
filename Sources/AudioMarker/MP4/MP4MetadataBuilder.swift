@@ -89,14 +89,18 @@ extension MP4MetadataBuilder {
 
     /// Serializes synchronized lyrics for storage in ©lyr.
     ///
-    /// Single-language lyrics are stored as LRC for maximum compatibility.
-    /// Multi-language lyrics are stored as TTML to preserve all language data.
+    /// Rich content (multi-language or karaoke segments) is stored as TTML
+    /// for full fidelity. Simple single-language lyrics without word-level
+    /// timing are stored as LRC for maximum compatibility with third-party players.
     private func serializeSynchronizedLyrics(_ lyrics: [SynchronizedLyrics]) -> String {
-        if lyrics.count == 1 {
-            return LRCParser.export(lyrics[0])
+        let hasKaraoke = lyrics.contains { syncLyrics in
+            syncLyrics.lines.contains { $0.isKaraoke }
         }
-        let doc = TTMLDocument.from(lyrics)
-        return TTMLExporter.exportDocument(doc)
+        if lyrics.count > 1 || hasKaraoke {
+            let doc = TTMLDocument.from(lyrics)
+            return TTMLExporter.exportDocument(doc)
+        }
+        return LRCParser.export(lyrics[0])
     }
 
     /// Builds a single UTF-8 text metadata item.

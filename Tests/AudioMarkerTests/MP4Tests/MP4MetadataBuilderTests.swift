@@ -266,6 +266,89 @@ extension MP4MetadataBuilderTests {
         #expect(roundTripped.synchronizedLyrics[0].lines[1].text == "World")
     }
 
+    @Test("Stores karaoke lyrics as TTML in ©lyr atom")
+    func buildKaraokeLyricsAsTTML() throws {
+        var metadata = AudioMetadata()
+        let segments = [
+            LyricSegment(startTime: .zero, endTime: .seconds(2), text: "Hello"),
+            LyricSegment(startTime: .seconds(2), endTime: .seconds(5), text: "world")
+        ]
+        let syncLyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(
+                    time: .zero, text: "Hello world", segments: segments)
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+
+        // Stored as TTML (not LRC) because of karaoke segments.
+        #expect(roundTripped.unsynchronizedLyrics?.contains("<tt") == true)
+        #expect(roundTripped.synchronizedLyrics.count == 1)
+        #expect(roundTripped.synchronizedLyrics[0].lines.count == 1)
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].text == "Hello world")
+        // Karaoke segments survive the round-trip.
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].segments.count == 2)
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].segments[0].text == "Hello")
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].segments[1].text == "world")
+    }
+
+    @Test("Stores simple mono-language lyrics as LRC in ©lyr atom")
+    func buildSimpleLyricsAsLRC() throws {
+        var metadata = AudioMetadata()
+        let syncLyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(time: .zero, text: "Simple line"),
+                LyricLine(time: .seconds(5), text: "Another line")
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+
+        // Simple content → LRC (no XML).
+        #expect(roundTripped.unsynchronizedLyrics?.contains("[00:00.00]") == true)
+        #expect(roundTripped.unsynchronizedLyrics?.contains("<tt") != true)
+        #expect(roundTripped.synchronizedLyrics.count == 1)
+        #expect(roundTripped.synchronizedLyrics[0].lines.count == 2)
+    }
+
+    @Test("Karaoke round-trip preserves segment timing")
+    func karaokeRoundTripPreservesSegmentTiming() throws {
+        var metadata = AudioMetadata()
+        let segments = [
+            LyricSegment(
+                startTime: .seconds(1), endTime: .seconds(3), text: "Feel"),
+            LyricSegment(
+                startTime: .seconds(3), endTime: .seconds(5), text: "the"),
+            LyricSegment(
+                startTime: .seconds(5), endTime: .seconds(8), text: "music")
+        ]
+        let syncLyrics = SynchronizedLyrics(
+            language: "fra",
+            lines: [
+                LyricLine(
+                    time: .seconds(1), text: "Feel the music",
+                    segments: segments)
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+
+        let line = try #require(roundTripped.synchronizedLyrics.first?.lines.first)
+        #expect(line.segments.count == 3)
+        #expect(line.segments[0].startTime == .seconds(1))
+        #expect(line.segments[0].endTime == .seconds(3))
+        #expect(line.segments[1].text == "the")
+        #expect(line.segments[2].endTime == .seconds(8))
+        // Language preserved.
+        #expect(roundTripped.synchronizedLyrics[0].language == "fra")
+    }
+
     @Test("Prefers synchronized lyrics over unsynchronized in ©lyr")
     func prefersSynchronizedOverUnsynchronized() throws {
         var metadata = AudioMetadata()
