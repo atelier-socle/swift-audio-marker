@@ -12,6 +12,8 @@ public struct AudioMarkerCLI: AsyncParsableCommand {
             Write.self,
             Chapters.self,
             Lyrics.self,
+            ArtworkGroup.self,
+            Validate.self,
             Strip.self,
             Batch.self,
             Info.self

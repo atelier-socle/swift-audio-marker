@@ -6,7 +6,7 @@ import Foundation
 struct Lyrics: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with synchronized lyrics.",
-        subcommands: [Export.self, Import.self]
+        subcommands: [Export.self, Import.self, Clear.self]
     )
 }
 

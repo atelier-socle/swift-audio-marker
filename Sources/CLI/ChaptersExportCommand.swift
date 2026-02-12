@@ -17,7 +17,10 @@ extension Chapters {
         @Option(name: .long, help: "Output file path (stdout if omitted).")
         var to: String?
 
-        @Option(name: .long, help: "Export format: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown.")
+        @Option(
+            name: .long,
+            help: "Export format: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, podcast-ns."
+        )
         var format: String = "podlove-json"
 
         mutating func run() throws {
