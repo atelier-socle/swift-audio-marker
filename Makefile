@@ -48,7 +48,7 @@ format-check:
 coverage:
 	swift test --enable-code-coverage
 	@PROF_DATA=$$(find .build -name "default.profdata" -type f | head -1); \
-	TEST_BIN=$$(find .build/debug -name "AudioMarkerPackageTests" -type f ! -name "*.o" | head -1); \
+	TEST_BIN=$$(find .build/debug -name "AudioMarkerPackageTests" -type f ! -name "*.o" -not -path "*.dSYM*" | head -1); \
 	if [ -n "$$PROF_DATA" ] && [ -n "$$TEST_BIN" ]; then \
 		xcrun llvm-cov report "$$TEST_BIN" \
 			-instr-profile="$$PROF_DATA" \
