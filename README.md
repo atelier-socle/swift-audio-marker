@@ -660,4 +660,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
 
 MIT License. See [LICENSE](LICENSE) for details.
 
-Copyright (c) 2026 Atelier Socle SAS
+Copyright (c) 2026 Atelier Socle SAS.
