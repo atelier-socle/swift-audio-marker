@@ -26,7 +26,7 @@ extension Lyrics {
         @Option(name: .long, help: "Output file path. Prints to stdout if omitted.")
         var to: String?
 
-        @Option(name: .long, help: "Export format: lrc or ttml.")
+        @Option(name: .long, help: "Export format: lrc, ttml, webvtt, or srt.")
         var format: String = "lrc"
 
         mutating func run() throws {
@@ -49,9 +49,13 @@ extension Lyrics {
                 let doc = TTMLDocument.from(
                     allLyrics, title: info.metadata.title)
                 output = TTMLExporter.exportDocument(doc)
+            case .webvtt:
+                output = WebVTTExporter.export(allLyrics, audioDuration: info.duration)
+            case .srt:
+                output = SRTExporter.export(allLyrics, audioDuration: info.duration)
             default:
                 throw ValidationError(
-                    "Unsupported lyrics export format \"\(format)\". Expected: lrc, ttml."
+                    "Unsupported lyrics export format \"\(format)\". Expected: lrc, ttml, webvtt, srt."
                 )
             }
 
@@ -79,10 +83,10 @@ extension Lyrics {
         @Argument(help: "Path to the audio file.")
         var file: String
 
-        @Option(name: .long, help: "Path to the lyrics file (LRC or TTML).")
+        @Option(name: .long, help: "Path to the lyrics file (LRC, TTML, WebVTT, or SRT).")
         var from: String
 
-        @Option(name: .long, help: "Import format: lrc or ttml.")
+        @Option(name: .long, help: "Import format: lrc, ttml, webvtt, or srt.")
         var format: String = "lrc"
 
         @Option(name: .long, help: "ISO 639-2 language code (3 characters, e.g., eng).")
@@ -102,9 +106,13 @@ extension Lyrics {
                 lyrics = [try LRCParser.parse(content, language: language)]
             case .ttml:
                 lyrics = try TTMLParser().parseLyrics(from: content)
+            case .webvtt:
+                lyrics = [try WebVTTExporter.parse(content, language: language)]
+            case .srt:
+                lyrics = [try SRTExporter.parse(content, language: language)]
             default:
                 throw ValidationError(
-                    "Unsupported lyrics import format \"\(format)\". Expected: lrc, ttml."
+                    "Unsupported lyrics import format \"\(format)\". Expected: lrc, ttml, webvtt, srt."
                 )
             }
 

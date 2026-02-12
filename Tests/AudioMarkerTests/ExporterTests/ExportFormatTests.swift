@@ -5,9 +5,9 @@ import Testing
 @Suite("Export Format")
 struct ExportFormatTests {
 
-    @Test("Has eight cases")
+    @Test("Has eleven cases")
     func caseCount() {
-        #expect(ExportFormat.allCases.count == 8)
+        #expect(ExportFormat.allCases.count == 11)
     }
 
     @Test("Podlove JSON has json extension")
@@ -50,6 +50,21 @@ struct ExportFormatTests {
         #expect(ExportFormat.podcastNamespace.fileExtension == "json")
     }
 
+    @Test("WebVTT has vtt extension")
+    func webvttExtension() {
+        #expect(ExportFormat.webvtt.fileExtension == "vtt")
+    }
+
+    @Test("SRT has srt extension")
+    func srtExtension() {
+        #expect(ExportFormat.srt.fileExtension == "srt")
+    }
+
+    @Test("Cue Sheet has cue extension")
+    func cueSheetExtension() {
+        #expect(ExportFormat.cueSheet.fileExtension == "cue")
+    }
+
     @Test("Import-capable formats support import")
     func supportsImport() {
         #expect(ExportFormat.podloveJSON.supportsImport)
@@ -60,6 +75,9 @@ struct ExportFormatTests {
         #expect(ExportFormat.podcastNamespace.supportsImport)
         #expect(!ExportFormat.markdown.supportsImport)
         #expect(ExportFormat.ttml.supportsImport)
+        #expect(ExportFormat.webvtt.supportsImport)
+        #expect(ExportFormat.srt.supportsImport)
+        #expect(ExportFormat.cueSheet.supportsImport)
     }
 
     // MARK: - ExportError Descriptions

@@ -18,6 +18,12 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     case ttml
     /// Podcasting 2.0 (podcast-namespace) JSON format.
     case podcastNamespace
+    /// WebVTT synchronized lyrics/subtitle format.
+    case webvtt
+    /// SubRip (SRT) synchronized lyrics/subtitle format.
+    case srt
+    /// Cue Sheet chapter format.
+    case cueSheet
 
     /// The file extension for this format.
     public var fileExtension: String {
@@ -30,6 +36,9 @@ public enum ExportFormat: String, Sendable, CaseIterable {
         case .lrc: "lrc"
         case .ttml: "ttml"
         case .podcastNamespace: "json"
+        case .webvtt: "vtt"
+        case .srt: "srt"
+        case .cueSheet: "cue"
         }
     }
 
@@ -37,8 +46,6 @@ public enum ExportFormat: String, Sendable, CaseIterable {
     public var supportsImport: Bool {
         switch self {
         case .markdown: false
-        case .lrc, .ttml: true
-        case .podcastNamespace: true
         default: true
         }
     }

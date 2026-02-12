@@ -20,29 +20,40 @@ enum CLIHelpers {
         return URL(fileURLWithPath: cwd).appendingPathComponent(expanded)
     }
 
+    /// Mapping from CLI format name to ``ExportFormat``.
+    private static let formatMap: [String: ExportFormat] = [
+        "podlove-json": .podloveJSON,
+        "podlove-xml": .podloveXML,
+        "mp4chaps": .mp4chaps,
+        "ffmetadata": .ffmetadata,
+        "markdown": .markdown,
+        "lrc": .lrc,
+        "ttml": .ttml,
+        "podcast-ns": .podcastNamespace,
+        "podcast-namespace": .podcastNamespace,
+        "webvtt": .webvtt,
+        "vtt": .webvtt,
+        "srt": .srt,
+        "cue": .cueSheet,
+        "cuesheet": .cueSheet,
+        "cue-sheet": .cueSheet
+    ]
+
     /// Parses an `ExportFormat` from a CLI string.
     ///
     /// Accepts: `"podlove-json"`, `"podlove-xml"`, `"mp4chaps"`, `"ffmetadata"`,
-    /// `"markdown"`, `"lrc"`, `"ttml"`.
+    /// `"markdown"`, `"lrc"`, `"ttml"`, `"podcast-ns"`, `"webvtt"`, `"srt"`, `"cue"`.
     /// - Parameter string: The format string.
     /// - Returns: The matching export format.
     /// - Throws: If the string does not match a known format.
     static func parseExportFormat(_ string: String) throws -> ExportFormat {
-        switch string.lowercased() {
-        case "podlove-json": return .podloveJSON
-        case "podlove-xml": return .podloveXML
-        case "mp4chaps": return .mp4chaps
-        case "ffmetadata": return .ffmetadata
-        case "markdown": return .markdown
-        case "lrc": return .lrc
-        case "ttml": return .ttml
-        case "podcast-ns", "podcast-namespace": return .podcastNamespace
-        default:
+        guard let format = formatMap[string.lowercased()] else {
             throw ValidationError(
                 "Unknown format \"\(string)\". "
-                    + "Expected: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, lrc, ttml, podcast-ns."
+                    + "Expected: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, lrc, ttml, podcast-ns, webvtt, srt, cue."
             )
         }
+        return format
     }
 
     /// Scans a directory for audio files.

@@ -19,7 +19,7 @@ extension Chapters {
 
         @Option(
             name: .long,
-            help: "Export format: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, podcast-ns."
+            help: "Export format: podlove-json, podlove-xml, mp4chaps, ffmetadata, markdown, podcast-ns, cue."
         )
         var format: String = "podlove-json"
 

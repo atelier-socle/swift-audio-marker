@@ -19,7 +19,8 @@ public struct ChapterExporter: Sendable {
     /// - Returns: A string in the specified format.
     /// - Throws: ``ExportError`` if encoding fails.
     public func export(_ chapters: ChapterList, format: ExportFormat) throws -> String {
-        switch format {
+        try Self.guardNotLyricsOnly(format)
+        return switch format {
         case .podloveJSON:
             try PodloveJSONExporter().export(chapters)
         case .podloveXML:
@@ -30,12 +31,13 @@ public struct ChapterExporter: Sendable {
             FFMetadataExporter().export(chapters)
         case .markdown:
             MarkdownExporter().export(chapters)
-        case .lrc:
-            throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
-        case .ttml:
-            throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
         case .podcastNamespace:
             try PodcastNamespaceParser.export(chapters)
+        case .cueSheet:
+            CueSheetExporter.export(chapters)
+        case .lrc, .ttml, .webvtt, .srt:
+            // Already handled by guardNotLyricsOnly above.
+            throw ExportError.unsupportedFormat("\(format) is a lyrics format")
         }
     }
 
@@ -49,7 +51,8 @@ public struct ChapterExporter: Sendable {
     /// - Throws: ``ExportError/importNotSupported(_:)`` for Markdown,
     ///           or format-specific errors.
     public func importChapters(from string: String, format: ExportFormat) throws -> ChapterList {
-        switch format {
+        try Self.guardNotLyricsOnly(format)
+        return switch format {
         case .podloveJSON:
             try PodloveJSONExporter().importChapters(from: string)
         case .podloveXML:
@@ -60,12 +63,26 @@ public struct ChapterExporter: Sendable {
             try FFMetadataExporter().importChapters(from: string)
         case .markdown:
             throw ExportError.importNotSupported("markdown")
-        case .lrc:
-            throw ExportError.unsupportedFormat("LRC is a lyrics format, not a chapter format")
-        case .ttml:
-            throw ExportError.unsupportedFormat("TTML is a lyrics format, not a chapter format")
         case .podcastNamespace:
             try PodcastNamespaceParser.parse(string)
+        case .cueSheet:
+            try CueSheetExporter.parse(string)
+        case .lrc, .ttml, .webvtt, .srt:
+            // Already handled by guardNotLyricsOnly above.
+            throw ExportError.unsupportedFormat("\(format) is a lyrics format")
+        }
+    }
+
+    // MARK: - Private
+
+    /// Lyrics-only formats that cannot be used for chapter export/import.
+    private static let lyricsOnlyFormats: Set<ExportFormat> = [.lrc, .ttml, .webvtt, .srt]
+
+    /// Throws if the format is lyrics-only.
+    private static func guardNotLyricsOnly(_ format: ExportFormat) throws {
+        if lyricsOnlyFormats.contains(format) {
+            throw ExportError.unsupportedFormat(
+                "\(format.rawValue) is a lyrics format, not a chapter format")
         }
     }
 }

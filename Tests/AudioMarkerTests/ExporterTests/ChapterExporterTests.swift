@@ -99,6 +99,21 @@ struct ChapterExporterTests {
         #expect(imported[0].title == "Introduction")
     }
 
+    @Test("Exports to Cue Sheet")
+    func exportCueSheet() throws {
+        let result = try exporter.export(sampleChapters, format: .cueSheet)
+        #expect(result.contains("TRACK 01 AUDIO"))
+        #expect(result.contains("Introduction"))
+    }
+
+    @Test("Imports from Cue Sheet")
+    func importCueSheet() throws {
+        let cue = try exporter.export(sampleChapters, format: .cueSheet)
+        let imported = try exporter.importChapters(from: cue, format: .cueSheet)
+        #expect(imported.count == 3)
+        #expect(imported[0].title == "Introduction")
+    }
+
     @Test("Markdown import throws importNotSupported")
     func markdownImportThrows() {
         #expect(throws: ExportError.self) {
@@ -136,6 +151,34 @@ struct ChapterExporterTests {
         }
     }
 
+    @Test("WebVTT export throws unsupportedFormat")
+    func webvttExportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.export(sampleChapters, format: .webvtt)
+        }
+    }
+
+    @Test("WebVTT import throws unsupportedFormat")
+    func webvttImportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.importChapters(from: "anything", format: .webvtt)
+        }
+    }
+
+    @Test("SRT export throws unsupportedFormat")
+    func srtExportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.export(sampleChapters, format: .srt)
+        }
+    }
+
+    @Test("SRT import throws unsupportedFormat")
+    func srtImportThrows() {
+        #expect(throws: ExportError.self) {
+            try exporter.importChapters(from: "anything", format: .srt)
+        }
+    }
+
     // MARK: - Round-Trip
 
     @Test(
@@ -149,6 +192,18 @@ struct ChapterExporterTests {
         for (orig, imp) in zip(sampleChapters, imported) {
             #expect(orig.title == imp.title)
             #expect(orig.start.description == imp.start.description)
+        }
+    }
+
+    @Test("Cue Sheet round-trip preserves titles and approximate timestamps")
+    func cueSheetRoundTrip() throws {
+        let exported = try exporter.export(sampleChapters, format: .cueSheet)
+        let imported = try exporter.importChapters(from: exported, format: .cueSheet)
+        #expect(imported.count == sampleChapters.count)
+        for (orig, imp) in zip(sampleChapters, imported) {
+            #expect(orig.title == imp.title)
+            // Cue Sheet uses CD frames (1/75s precision), so allow small differences.
+            #expect(abs(orig.start.timeInterval - imp.start.timeInterval) < 0.02)
         }
     }
 }
