@@ -13,29 +13,37 @@ public struct LyricLine: Sendable, Hashable {
     /// per-word timing. When empty, the line has no word-level timing.
     public let segments: [LyricSegment]
 
+    /// Optional speaker or agent name for this line.
+    ///
+    /// Used to track who speaks a line (e.g., narrator, character).
+    /// Preserved through TTML round-trips via `ttm:agent` metadata.
+    public let speaker: String?
+
     /// Creates a timestamped lyric line.
     /// - Parameters:
     ///   - time: The display time for this line.
     ///   - text: The text content.
-    public init(time: AudioTimestamp, text: String) {
-        self.time = time
-        self.text = text
-        self.segments = []
-    }
-
-    /// Creates a timestamped lyric line with karaoke segments.
-    /// - Parameters:
-    ///   - time: The display time for this line.
-    ///   - text: The full text content.
-    ///   - segments: Word-level timing segments.
-    public init(time: AudioTimestamp, text: String, segments: [LyricSegment]) {
+    ///   - segments: Word-level timing segments. Defaults to empty.
+    ///   - speaker: Speaker or agent name. Defaults to `nil`.
+    public init(
+        time: AudioTimestamp,
+        text: String,
+        segments: [LyricSegment] = [],
+        speaker: String? = nil
+    ) {
         self.time = time
         self.text = text
         self.segments = segments
+        self.speaker = speaker
     }
 
     /// Whether this line has word-level (karaoke) timing.
     public var isKaraoke: Bool {
         !segments.isEmpty
+    }
+
+    /// Whether this line has a speaker attribution.
+    public var hasSpeaker: Bool {
+        speaker != nil
     }
 }

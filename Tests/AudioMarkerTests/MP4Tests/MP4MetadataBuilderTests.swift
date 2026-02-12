@@ -349,6 +349,29 @@ extension MP4MetadataBuilderTests {
         #expect(roundTripped.synchronizedLyrics[0].language == "fra")
     }
 
+    @Test("Stores mono-language lyrics with speakers as TTML")
+    func buildSpeakerLyricsAsTTML() throws {
+        var metadata = AudioMetadata()
+        let syncLyrics = SynchronizedLyrics(
+            language: "eng",
+            lines: [
+                LyricLine(time: .zero, text: "Hello", speaker: "Alice"),
+                LyricLine(time: .seconds(5), text: "World", speaker: "Bob")
+            ])
+        metadata.synchronizedLyrics = [syncLyrics]
+
+        let ilst = metadataBuilder.buildIlst(from: metadata)
+        let roundTripped = try parseIlstMetadata(ilst)
+
+        // Should be stored as TTML (not LRC) because of speakers.
+        #expect(roundTripped.unsynchronizedLyrics?.contains("<tt") == true)
+        #expect(roundTripped.synchronizedLyrics.count == 1)
+        #expect(roundTripped.synchronizedLyrics[0].lines.count == 2)
+        // Speakers survive the round-trip.
+        #expect(roundTripped.synchronizedLyrics[0].lines[0].speaker == "Alice")
+        #expect(roundTripped.synchronizedLyrics[0].lines[1].speaker == "Bob")
+    }
+
     @Test("Prefers synchronized lyrics over unsynchronized in ©lyr")
     func prefersSynchronizedOverUnsynchronized() throws {
         var metadata = AudioMetadata()

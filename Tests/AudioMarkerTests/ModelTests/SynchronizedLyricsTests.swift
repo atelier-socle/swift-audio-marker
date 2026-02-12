@@ -129,4 +129,45 @@ struct SynchronizedLyricsTests {
         #expect(line1 == line2)
         #expect(line1.hashValue == line2.hashValue)
     }
+
+    // MARK: - Speaker
+
+    @Test("LyricLine with speaker stores it correctly")
+    func lyricLineWithSpeaker() {
+        let line = LyricLine(time: .zero, text: "Hello", speaker: "Alice")
+        #expect(line.speaker == "Alice")
+        #expect(line.hasSpeaker)
+    }
+
+    @Test("LyricLine without speaker defaults to nil")
+    func lyricLineWithoutSpeaker() {
+        let line = LyricLine(time: .zero, text: "Hello")
+        #expect(line.speaker == nil)
+        #expect(!line.hasSpeaker)
+    }
+
+    @Test("LyricLine with segments and speaker stores both")
+    func lyricLineWithSegmentsAndSpeaker() {
+        let segments = [
+            LyricSegment(startTime: .zero, endTime: .seconds(1), text: "Hi")
+        ]
+        let line = LyricLine(
+            time: .zero, text: "Hi", segments: segments, speaker: "Bob")
+        #expect(line.isKaraoke)
+        #expect(line.hasSpeaker)
+        #expect(line.speaker == "Bob")
+        #expect(line.segments.count == 1)
+    }
+
+    @Test("LyricLine Hashable includes speaker")
+    func lyricLineHashableIncludesSpeaker() {
+        let line1 = LyricLine(time: .zero, text: "Hi", speaker: "Alice")
+        let line2 = LyricLine(time: .zero, text: "Hi", speaker: "Alice")
+        let line3 = LyricLine(time: .zero, text: "Hi", speaker: "Bob")
+        let line4 = LyricLine(time: .zero, text: "Hi")
+        #expect(line1 == line2)
+        #expect(line1.hashValue == line2.hashValue)
+        #expect(line1 != line3)
+        #expect(line1 != line4)
+    }
 }

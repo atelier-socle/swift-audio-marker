@@ -75,13 +75,21 @@ extension TTMLDocument {
     ///
     /// Produces one ``SynchronizedLyrics`` per division (language group).
     /// Karaoke spans are preserved in ``LyricLine/segments``.
+    /// Agent metadata is resolved to ``LyricLine/speaker`` names.
     public func toSynchronizedLyrics() -> [SynchronizedLyrics] {
-        divisions.map { division in
+        let agentLookup = Dictionary(
+            uniqueKeysWithValues: agents.map { agent in
+                (agent.id, agent.name ?? agent.id)
+            })
+        return divisions.map { division in
             let lang = division.language ?? language
             let iso639 = Self.toISO6392(lang)
             let lines = division.paragraphs.map { paragraph -> LyricLine in
+                let speaker = paragraph.agentID.map { agentLookup[$0] ?? $0 }
                 if paragraph.spans.isEmpty {
-                    return LyricLine(time: paragraph.begin, text: paragraph.text)
+                    return LyricLine(
+                        time: paragraph.begin, text: paragraph.text,
+                        speaker: speaker)
                 }
                 let segments = paragraph.spans.map { span in
                     LyricSegment(
@@ -93,13 +101,16 @@ extension TTMLDocument {
                 }
                 return LyricLine(
                     time: paragraph.begin, text: paragraph.text,
-                    segments: segments)
+                    segments: segments, speaker: speaker)
             }
             return SynchronizedLyrics(language: iso639, lines: lines)
         }
     }
 
     /// Creates a ``TTMLDocument`` from synchronized lyrics (for export upgrade).
+    ///
+    /// When lines have ``LyricLine/speaker`` values, `<ttm:agent>` metadata
+    /// is generated with slugified IDs and each paragraph references its agent.
     /// - Parameters:
     ///   - lyrics: Array of synchronized lyrics to convert.
     ///   - title: Optional document title.
@@ -107,6 +118,25 @@ extension TTMLDocument {
     public static func from(
         _ lyrics: [SynchronizedLyrics], title: String? = nil
     ) -> TTMLDocument {
+        // Collect unique speakers across all lines (preserving first-seen order).
+        var seenSpeakers: [String] = []
+        for syncLyrics in lyrics {
+            for line in syncLyrics.lines {
+                if let speaker = line.speaker, !seenSpeakers.contains(speaker) {
+                    seenSpeakers.append(speaker)
+                }
+            }
+        }
+
+        // Build agent lookup: speaker name → slugified ID.
+        let speakerToID: [String: String] = Dictionary(
+            uniqueKeysWithValues: seenSpeakers.map { ($0, slugify($0)) })
+        let agents = seenSpeakers.map { speaker in
+            TTMLAgent(
+                id: speakerToID[speaker, default: slugify(speaker)],
+                type: "person", name: speaker)
+        }
+
         let divisions = lyrics.map { syncLyrics in
             let sortedLines = syncLyrics.lines.sorted { $0.time < $1.time }
             let paragraphs = sortedLines.enumerated().map { index, line -> TTMLParagraph in
@@ -125,14 +155,32 @@ extension TTMLDocument {
                     } else {
                         nil
                     }
+                let agentID = line.speaker.flatMap { speakerToID[$0] }
                 return TTMLParagraph(
-                    begin: line.time, end: end, text: line.text, spans: spans)
+                    begin: line.time, end: end, text: line.text, spans: spans,
+                    agentID: agentID)
             }
             return TTMLDivision(
                 language: syncLyrics.language, paragraphs: paragraphs)
         }
         let lang = lyrics.first?.language ?? "und"
-        return TTMLDocument(language: lang, title: title, divisions: divisions)
+        return TTMLDocument(
+            language: lang, title: title, agents: agents, divisions: divisions)
+    }
+
+    /// Converts a speaker name to a URL-safe slug for use as an XML ID.
+    private static func slugify(_ name: String) -> String {
+        var slug = ""
+        for character in name.lowercased() {
+            if character.isLetter || character.isNumber {
+                slug.append(character)
+            } else if !slug.isEmpty && slug.last != "-" {
+                slug.append("-")
+            }
+        }
+        // Trim trailing hyphen.
+        if slug.last == "-" { slug.removeLast() }
+        return slug
     }
 
     /// Converts a 2-letter ISO 639-1 code to a 3-letter ISO 639-2 code.
