@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Atelier Socle SAS
+
+# .codecov.yml — Codecov configuration for swift-audio-marker.
+#
+# A small threshold absorbs coverage-measurement drift between toolchains:
+# the coverage job runs under Swift 6.3 / Xcode 26.4, while older base
+# commits were measured under Swift 6.2 / Xcode 26.2.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.5%
+    patch:
+      default:
+        target: auto
+        threshold: 0.5%
